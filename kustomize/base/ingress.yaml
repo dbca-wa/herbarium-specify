@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: specify-ingress
+  labels:
+    app: specify
+  annotations:
+    # These will be overridden in overlays for each environment
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: specify.example.com  # Override this in overlays
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: nginx
+            port:
+              number: 80
+  tls:
+  - hosts:
+    - specify.example.com  # Override this in overlays
+    secretName: specify-tls

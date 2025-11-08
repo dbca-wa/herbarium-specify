@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: specify-storage
+  labels:
+    app: specify
+spec:
+  accessModes:
+  - ReadWriteMany  # Multiple pods need to access this
+  resources:
+    requests:
+      storage: 10Gi
+  # storageClassName will be set per environment in overlays

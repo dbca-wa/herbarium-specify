@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: report-runner
+  labels:
+    app: specify
+    component: report-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: specify
+      component: report-runner
+  template:
+    metadata:
+      labels:
+        app: specify
+        component: report-runner
+    spec:
+      containers:
+      - name: report-runner
+        image: specifyconsortium/report-runner:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: SERVER_NAME
+          value: "report-runner"
+        - name: SERVER_PORT
+          value: "8080"
+        - name: TZ
+          value: "Australia/Perth"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"

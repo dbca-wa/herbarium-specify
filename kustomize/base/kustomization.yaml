@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- mariadb-deployment.yaml
+- specify-deployment.yaml
+- specify-worker-deployment.yaml
+- specify6-deployment.yaml
+- asset-server-deployment.yaml
+- report-runner-deployment.yaml
+- redis-deployment.yaml
+- nginx-deployment.yaml
+- nginx-configmap.yaml
+- services.yaml
+- pvc.yaml
+- mariadb-pvc.yaml
+- asset-storage-pvc.yaml
+- ingress.yaml
+
+# ConfigMap for database init script is created separately via kubectl
+# to avoid kustomize issues with control characters in SQL dump
+# Run: kubectl create configmap db-init-script --from-file=init.sql=base/specify_dev_dump.sql -n herbarium-specify

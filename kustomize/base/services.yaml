@@ -1,0 +1,108 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+  labels:
+    app: specify
+    component: database
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3306
+    targetPort: 3306
+    protocol: TCP
+    name: mysql
+  selector:
+    app: specify
+    component: database
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: specify
+  labels:
+    app: specify
+    component: web
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: specify
+    component: web
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app: specify
+    component: redis
+spec:
+  type: ClusterIP
+  ports:
+  - port: 6379
+    targetPort: 6379
+    protocol: TCP
+    name: redis
+  selector:
+    app: specify
+    component: redis
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: asset-server
+  labels:
+    app: specify
+    component: asset-server
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: specify
+    component: asset-server
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: report-runner
+  labels:
+    app: specify
+    component: report-runner
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: specify
+    component: report-runner
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    app: specify
+    component: nginx
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  selector:
+    app: specify
+    component: nginx

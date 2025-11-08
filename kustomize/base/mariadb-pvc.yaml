@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mariadb-storage
+  labels:
+    app: specify
+    component: database
+spec:
+  accessModes:
+  - ReadWriteOnce  # Database only needs single pod access
+  resources:
+    requests:
+      storage: 20Gi
+  # storageClassName will be set per environment in overlays

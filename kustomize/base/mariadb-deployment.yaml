@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mariadb
+  labels:
+    app: specify
+    component: database
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Important for databases
+  selector:
+    matchLabels:
+      app: specify
+      component: database
+  template:
+    metadata:
+      labels:
+        app: specify
+        component: database
+    spec:
+      containers:
+      - name: mariadb
+        image: mariadb:10.11
+        ports:
+        - containerPort: 3306
+          name: mysql
+        env:
+        - name: MARIADB_ALLOW_EMPTY_ROOT_PASSWORD
+          value: "yes"
+        - name: MARIADB_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: specify-secrets
+              key: DATABASE_NAME
+        - name: MARIADB_USER
+          valueFrom:
+            secretKeyRef:
+              name: specify-secrets
+              key: MASTER_NAME
+        - name: MARIADB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: specify-secrets
+              key: MASTER_PASSWORD
+        volumeMounts:
+        - name: mariadb-data
+          mountPath: /var/lib/mysql
+        - name: db-init
+          mountPath: /docker-entrypoint-initdb.d
+          readOnly: true
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          exec:
+            command:
+            - mysqladmin
+            - ping
+            - -h
+            - localhost
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - mysqladmin
+            - ping
+            - -h
+            - localhost
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: mariadb-data
+        persistentVolumeClaim:
+          claimName: mariadb-storage
+      - name: db-init
+        hostPath:
+          path: /tmp/specify-init
+          type: Directory

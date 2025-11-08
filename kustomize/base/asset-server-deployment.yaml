@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: asset-server
+  labels:
+    app: specify
+    component: asset-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: specify
+      component: asset-server
+  template:
+    metadata:
+      labels:
+        app: specify
+        component: asset-server
+    spec:
+      containers:
+      - name: asset-server
+        image: specifyconsortium/specify-asset-service:latest
+        securityContext:
+          capabilities:
+            add:
+            - SYS_PTRACE
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: SERVER_NAME
+          value: "asset-server"
+        - name: SERVER_PORT
+          value: "8080"
+        - name: ATTACHMENT_KEY
+          valueFrom:
+            secretKeyRef:
+              name: specify-secrets
+              key: ASSET_SERVER_KEY
+        - name: DEBUG_MODE
+          value: "false"
+        - name: TZ
+          value: "Australia/Perth"
+        volumeMounts:
+        - name: attachments
+          mountPath: /home/specify/attachments
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: attachments
+        persistentVolumeClaim:
+          claimName: asset-storage

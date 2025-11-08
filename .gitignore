@@ -1,0 +1,30 @@
+# Environment files (contain secrets)
+.github
+*.env
+*.sql
+!kustomize/base/specify_dev_dump.sql
+kustomize/creds
+kustomize/overlays/prod/
+kustomize/overlays/uat/
+2_UAT_README.md
+3_PROD_README.md
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Backup files
+*.bak
+*.backup
