@@ -40,6 +40,11 @@ This creates a local Kubernetes cluster named `specify-test`.
 
 ```bash
 # From the kustomize directory
+
+# Create the temp directory
+docker exec k3d-specify-test-server-0 mkdir -p /tmp/specify-init
+
+# Copy the file to the temp directory
 docker cp base/specify_dev_dump.sql k3d-specify-test-server-0:/tmp/specify-init/init.sql
 ```
 
