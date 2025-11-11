@@ -26,10 +26,13 @@ spec:
         - -c
         - |
           echo "Copying static files from Specify image..."
-          mkdir -p /static-files
+          mkdir -p /static-files/config
           cp -rv /opt/specify7/specifyweb/frontend/static/* /static-files/
+          echo "Copying config files..."
+          cp -v /opt/specify7/config/icons*.xml /static-files/config/
           echo "Static files copied successfully"
           ls -la /static-files/
+          ls -la /static-files/config/
         volumeMounts:
         - name: static-files
           mountPath: /static-files
