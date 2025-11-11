@@ -8,4 +8,5 @@ spec:
   - ReadWriteOnce
   resources:
     requests:
-      storage: 20Gi
+      # storage: 20Gi
+      storage: 1Gi  # Reduced for local dev testing

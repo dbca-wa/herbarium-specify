@@ -4,3 +4,6 @@ metadata:
   name: mariadb-storage
 spec:
   storageClassName: local-path  # K3d's default storage class
+  resources:
+    requests:
+      storage: 2Gi  # Reduced for local dev (23MB dump + growth)
