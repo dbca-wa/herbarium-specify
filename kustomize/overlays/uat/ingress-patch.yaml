@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: specify-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "128m"
+    # External proxy handles TLS and authentication
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # Remove cert-manager annotation
+    cert-manager.io/cluster-issuer: null
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: specify-test.dbca.wa.gov.au
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: nginx
+            port:
+              number: 80
+  # Explicitly set tls to empty array to remove TLS config
+  tls: []

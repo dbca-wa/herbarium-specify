@@ -105,7 +105,7 @@ Then open your browser to: **http://localhost:8000/specify/**
 -   Username: `jaridp`
 -   Password: `wvq9dmj@BCY4cdy_uxd`
 
-NOTE: These are non-sensitive testing credentials made during specify 6 workbench database creation with mariadb and are specific only to the specify_dev_dump.sql file, which has no sensitive data. A Specify 6 dump is required, unfortunately.
+NOTE: These are non-sensitive testing credentials made during specify 6 workbench database creation with mariadb and are specific only to the specify_dev_dump.sql file, which has no sensitive data. A Specify 6 dump and static files are required to get Specify 7 working, unfortunately.
 
 **Keep the terminal window open** - closing it will stop the port-forward.
 
@@ -117,11 +117,11 @@ In Kubernetes, services run inside the cluster and aren't accessible from your M
 Your Browser → localhost:8000 → K3d Cluster → nginx service
 ```
 
-In production (UAT/Prod), we'll use an Ingress controller with a real domain (specify-test or specify dbca) name instead of port-forward.
+In production (UAT/Prod), we'll use an Ingress controller with a real domain (specify-test or specify dbca.wa.gov.au) name instead of port-forward.
 
 ## Why Nginx? Can't Specify serve everything?\*\*
 
-Specify 7 runs with gunicorn (Python web server) which **does not serve static files** in production. This is standard Django practice (Note: though this could be changed, leaving as-is as the app is heavy and it may not be worth investing time to workaround their standard).
+Specify 7 runs with gunicorn (Python web server) which **does not serve static files** in production by default. This is standard Django practice (Note: though this could be changed with whitenoise[brotli] in the Django application Specify have opted not to do this, likely in the interest of scaling).
 
 **What Nginx does here:**
 
@@ -202,7 +202,7 @@ kubectl delete namespace herbarium-specify
 k3d cluster delete specify-test
 ```
 
-**Warning**: Deleting the namespace or cluster will delete all data including the database!
+**Warning**: Deleting the namespace or cluster will delete all data including the database! This is a last resort and NOT RECOMMENDED IN UAT / PRODUCTION.
 
 ## Troubleshooting
 
@@ -311,15 +311,86 @@ kubectl port-forward -n herbarium-specify svc/nginx 8001:80
 
 ## Environment Variables
 
-Environment variables are in `.env` (gitignored). See `.env.example` for template.
+### How Environment Variables Work
+
+Environment variables are managed through Kustomize's `secretGenerator`, which creates Kubernetes secrets from your `.env` file.
+
+**The `.env` file** (gitignored) contains your environment-specific configuration. See `.env.example` for template.
 
 **Key variables:**
 
 -   `DATABASE_HOST=mariadb` - Database service name
--   `MASTER_NAME=specify_admin` - Database username
+-   `DATABASE_PORT=3306` - Database port
+-   `DATABASE_NAME=specify_dev` - Database name
+-   `MASTER_NAME=specify` - Database username
+-   `MASTER_PASSWORD=specify_pass` - Database password
+-   `SECRET_KEY=...` - Django secret key
 -   `ASSET_SERVER_URL=http://asset-server:8080/web_asset_store.xml` - Asset server URL
+-   `ASSET_SERVER_KEY=test-asset-key` - Asset server authentication key
+-   `CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://localhost` - Allowed origins
 
 **Note**: Services communicate using Kubernetes DNS (service names), not localhost.
+
+### How envFrom Works
+
+The deployment now uses `envFrom` to load environment variables, which is cleaner than mapping each variable individually.
+
+**What happens:**
+
+1. Kustomize reads your `.env` file
+2. Creates a Kubernetes secret called `specify-secrets` with all the key-value pairs
+3. The deployment uses `envFrom` to load ALL variables from the secret at once
+
+**In the deployment YAML:**
+```yaml
+envFrom:
+- secretRef:
+    name: specify-secrets
+```
+
+This automatically loads all variables from the secret into the container's environment.
+
+**Benefits:**
+- Much cleaner YAML (no need to map each variable individually)
+- Easier to add new environment variables (just add to `.env`)
+- Consistent with Kubernetes best practices
+
+### Environment-Specific Overrides
+
+Some variables are overridden per environment using deployment patches:
+
+**Dev overlay** (`kustomize/overlays/dev/deployment-patch.yaml`):
+- `SP7_DEBUG=true` - Enable debug mode
+- `LOG_LEVEL=DEBUG` - Verbose logging
+
+**UAT/Prod overlays** will have:
+- `SP7_DEBUG=false` - Disable debug mode
+- `LOG_LEVEL=WARNING` - Less verbose logging
+
+### Special Case: Asset Server
+
+The asset server container expects an environment variable called `ATTACHMENT_KEY`, but we store it as `ASSET_SERVER_KEY` in the secret (since that's what the Specify app uses).
+
+The deployment handles this mapping automatically:
+```yaml
+- name: ATTACHMENT_KEY
+  valueFrom:
+    secretKeyRef:
+      name: specify-secrets
+      key: ASSET_SERVER_KEY
+```
+
+So you only need `ASSET_SERVER_KEY` in your `.env` file (per the env template).
+
+### Updating Environment Variables
+
+If you need to change environment variables:
+
+1. Edit `kustomize/overlays/dev/.env`
+2. Apply the changes: `kubectl apply -k kustomize/overlays/dev`
+3. Restart the deployment: `kubectl rollout restart deployment/specify -n herbarium-specify`
+
+The secret will be updated and pods will pick up the new values on restart.
 
 ## Next Steps
 

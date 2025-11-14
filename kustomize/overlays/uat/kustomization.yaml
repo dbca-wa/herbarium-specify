@@ -21,6 +21,10 @@ patches:
   target:
     kind: Deployment
     name: specify
+- path: specify-worker-patch.yaml
+  target:
+    kind: Deployment
+    name: specify-worker
 - path: ingress-patch.yaml
   target:
     kind: Ingress
@@ -29,19 +33,35 @@ patches:
   target:
     kind: PersistentVolumeClaim
     name: specify-storage
-- path: mariadb-pvc-patch.yaml
-  target:
-    kind: PersistentVolumeClaim
-    name: mariadb-storage
 - path: asset-storage-pvc-patch.yaml
   target:
     kind: PersistentVolumeClaim
     name: asset-storage
+# Exclude MariaDB resources (using Azure MySQL instead)
+# Remove MariaDB deployment, service, and PVC
+- patch: |-
+    $patch: delete
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: mariadb
+- patch: |-
+    $patch: delete
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: mariadb
+- patch: |-
+    $patch: delete
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: mariadb-storage
 
 # Add labels to all resources
 labels:
 - pairs:
-    environment: dev
+    environment: uat
     managed-by: kustomize
 
 # Add common annotations

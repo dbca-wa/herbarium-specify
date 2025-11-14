@@ -20,10 +20,6 @@ spec:
       containers:
       - name: asset-server
         image: specifyconsortium/specify-asset-service:latest
-        securityContext:
-          capabilities:
-            add:
-            - SYS_PTRACE
         ports:
         - containerPort: 8080
           name: http

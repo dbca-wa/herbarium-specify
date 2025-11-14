@@ -1,12 +1,15 @@
 # Environment files (contain secrets)
+uat_access.yaml
+prod_access.yaml
+scripts/uat-db-azure.sh
+scripts/AZURE_BACKUP_README.md
 .github
 *.env
 *.sql
+docs/
 !kustomize/base/specify_dev_dump.sql
 kustomize/creds
 kustomize/overlays/prod/
-kustomize/overlays/uat/
-2_UAT_README.md
 3_PROD_README.md
 
 # IDE and editor files

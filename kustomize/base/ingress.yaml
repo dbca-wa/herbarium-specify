@@ -10,7 +10,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: specify.example.com  # Override this in overlays
+  - host: specify.example.com  # Overrided in overlays (dev, uat, prod)
     http:
       paths:
       - path: /
@@ -22,5 +22,5 @@ spec:
               number: 80
   tls:
   - hosts:
-    - specify.example.com  # Override this in overlays
+    - specify.example.com  # Overrided in overlays (dev, uat, prod)
     secretName: specify-tls

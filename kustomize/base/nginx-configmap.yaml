@@ -18,14 +18,13 @@ data:
     server {
         listen 80;
         server_name _;
-        client_max_body_size 128M;
+        # Remove client_max_body_size - edge proxy already sets this
 
         # Proxy to Specify backend
         location / {
             proxy_pass http://specify_backend;
             proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            # Remove X-Real-IP and X-Forwarded-For - edge proxy already sets these
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_read_timeout 600s;
             proxy_send_timeout 600s;
@@ -43,36 +42,26 @@ data:
         location /web_asset_store.xml {
             proxy_pass http://asset_server;
             proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         }
 
         location /fileget {
             proxy_pass http://asset_server;
             proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         }
 
         location /fileupload {
             proxy_pass http://asset_server;
             proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            client_max_body_size 0;
         }
 
         location /getmetadata {
             proxy_pass http://asset_server;
             proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         }
 
         location /testkey {
             proxy_pass http://asset_server;
             proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         }
     }
+

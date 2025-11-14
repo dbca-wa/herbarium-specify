@@ -1,0 +1,10 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: specify-worker
+spec:
+  template:
+    spec:
+      initContainers:
+      - $patch: delete
+        name: wait-for-mariadb
