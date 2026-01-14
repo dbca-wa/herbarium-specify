@@ -29,7 +29,7 @@ spec:
         command: ['sh', '-c', 'until nc -z asset-server 8080; do echo waiting for asset-server; sleep 2; done']
       containers:
       - name: specify
-        image: specifyconsortium/specify7-service:v7.11.2
+        image: specifyconsortium/specify7-service:v7.11.3
         ports:
         - containerPort: 8000
           name: http

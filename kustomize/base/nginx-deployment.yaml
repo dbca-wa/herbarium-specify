@@ -20,7 +20,7 @@ spec:
       initContainers:
       # Copy static files from Specify image to Nginx volume
       - name: copy-static-files
-        image: specifyconsortium/specify7-service:v7.11.2
+        image: specifyconsortium/specify7-service:v7.11.3
         command: 
         - sh
         - -c
