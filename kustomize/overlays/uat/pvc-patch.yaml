@@ -3,9 +3,9 @@ kind: PersistentVolumeClaim
 metadata:
   name: specify-storage
 spec:
-  storageClassName: managed-csi
+  storageClassName: azurefile-csi  # Azure Files, not Blob
   accessModes:
-  - ReadWriteOnce
+  - ReadWriteMany  # Multiple pods/nodes can mount
   resources:
     requests:
-      storage: 2Gi  # Conservative for UAT testing
+      storage: 2Gi
