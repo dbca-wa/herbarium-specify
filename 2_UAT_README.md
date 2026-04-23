@@ -192,6 +192,54 @@ kubectl describe pod <pod-name> -n herbarium-specify
 kubectl get events -n herbarium-specify --sort-by='.lastTimestamp'
 ```
 
+### Kubeconfig Merge Conflicts (Multiple Clusters)
+
+**Symptom**: `system:unauthenticated` / 403 Forbidden errors even after downloading a fresh kubeconfig from Rancher, despite the token being valid.
+
+**Cause**: When merging kubeconfigs (`kubectl config view --flatten`), if an existing user or context entry with the same name already exists, kubectl keeps the old one and ignores the new one. This commonly happens when:
+- You have multiple Rancher-managed clusters that all define a user called `rancher`
+- A previous merge created user/context entries with the same names (e.g. `az-aks-oim03` as both a context and user name), and the old token has since expired
+
+**Diagnosis** — check what user your context is actually pointing to and whether the token is stale:
+
+```bash
+# See all contexts and which user they reference
+kubectl config view -o jsonpath='{range .contexts[*]}{.name}{"\t"}{.context.user}{"\n"}{end}'
+
+# See all users
+kubectl config view -o jsonpath='{range .users[*]}{.name}{"\n"}{end}'
+
+# Quick test — bypass the merged config entirely
+KUBECONFIG=uat_access.yaml kubectl get pods -n herbarium-specify
+```
+
+If the `KUBECONFIG=uat_access.yaml` command works but normal kubectl doesn't, the merge is the problem.
+
+**Fix** — clean up stale entries and re-merge:
+
+```bash
+# 1. Before downloading a new kubeconfig from Rancher, rename the user
+#    in uat_access.yaml from "rancher" to "rancher-uat" (in users and contexts)
+#    to avoid collisions with other clusters
+
+# 2. Remove any stale user entries that may have the old token
+kubectl config unset users.rancher
+kubectl config unset users.az-aks-oim03  # if this exists from a previous merge
+
+# 3. Re-merge
+KUBECONFIG=~/.kube/config:uat_access.yaml kubectl config view --flatten > ~/.kube/config.new
+mv ~/.kube/config.new ~/.kube/config
+
+# 4. Ensure the context points to the correct user
+kubectl config set-context az-aks-oim03 --user=rancher-uat
+
+# 5. Test
+kubectl config use-context az-aks-oim03
+kubectl get pods -n herbarium-specify
+```
+
+**Prevention** — always rename the user in `uat_access.yaml` to something unique (e.g. `rancher-uat`) before merging. The user name is just a local label and doesn't affect authentication.
+
 ## Architecture Notes
 
 ### Database
