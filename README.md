@@ -2,6 +2,9 @@
 
 This repository contains Kubernetes deployment configurations for the Herbarium Specify 7 application using Kustomize for environment-specific overlays.
 
+## Current Status
+UAT working. Ready for production (requires NGINX rule setting and connection to provisioned Azure Storage). Follow the Prod readme to get it going upon receipt of confirmation that NGINX url set up (requires admin privilleges).
+
 ## Overview
 
 Specify 7 is a biological collections management system. This deployment supports three environments:
