@@ -1,6 +1,7 @@
 # Environment files (contain secrets)
 uat_access.yaml
 prod_access.yaml
+az-aks-prod01.yaml
 scripts/uat-db-azure.sh
 scripts/AZURE_BACKUP_README.md
 .github
@@ -9,8 +10,6 @@ scripts/AZURE_BACKUP_README.md
 docs/
 !kustomize/base/specify_dev_dump.sql
 kustomize/creds
-kustomize/overlays/prod/
-3_PROD_README.md
 *-secret.yaml
 
 # IDE and editor files

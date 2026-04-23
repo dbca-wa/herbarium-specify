@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: specify
+spec:
+  # Production may need more replicas for high availability
+  replicas: 2
+  template:
+    spec:
+      initContainers:
+      - $patch: delete
+        name: wait-for-mariadb
+      containers:
+      - name: specify
+        # Production resource limits - higher than UAT
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+

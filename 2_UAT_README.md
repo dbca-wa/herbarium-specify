@@ -162,8 +162,8 @@ Use the reset script to clear all resources (keeps namespace):
 
 ### VPN Issues
 
-**Symptom**: 406 errors or authentication failures  
-**Solution**: Disconnect VPN and retry
+**Symptom**: 406 errors or authentication failures with kubectl. Stale/cached content when viewing the web UI.  
+**Solution**: Disconnect VPN and retry. VPN can route traffic through different CDN edge nodes that may have cached old content.
 
 ### Permission Errors
 

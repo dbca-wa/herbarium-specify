@@ -1,0 +1,77 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: herbarium-specify
+
+# Reference the base
+resources:
+- ../../base
+
+# Generate secrets from .env file
+secretGenerator:
+- name: specify-secrets
+  envs:
+  - .env
+  options:
+    disableNameSuffixHash: true
+
+# Apply patches
+patches:
+- path: deployment-patch.yaml
+  target:
+    kind: Deployment
+    name: specify
+- path: specify-worker-patch.yaml
+  target:
+    kind: Deployment
+    name: specify-worker
+- path: ingress-patch.yaml
+  target:
+    kind: Ingress
+    name: specify-ingress
+- path: pvc-patch.yaml
+  target:
+    kind: PersistentVolumeClaim
+    name: specify-storage
+- path: asset-server-patch.yaml
+  target:
+    kind: Deployment
+    name: asset-server
+# Exclude asset-storage PVC (using inline CSI volume instead)
+- patch: |-
+    $patch: delete
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: asset-storage
+# Exclude MariaDB resources (using Azure MySQL instead)
+# Remove MariaDB deployment, service, and PVC
+- patch: |-
+    $patch: delete
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: mariadb
+- patch: |-
+    $patch: delete
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: mariadb
+- patch: |-
+    $patch: delete
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: mariadb-storage
+
+# Add labels to all resources
+labels:
+- pairs:
+    environment: production
+    managed-by: kustomize
+
+# Add common annotations
+commonAnnotations:
+  version: v7.12.0.4
+

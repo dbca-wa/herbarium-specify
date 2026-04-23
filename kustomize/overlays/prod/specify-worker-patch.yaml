@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: specify-worker
+spec:
+  # Production may need more worker replicas for background tasks
+  replicas: 2
+  template:
+    spec:
+      initContainers:
+      - $patch: delete
+        name: wait-for-mariadb
+      containers:
+      - name: specify-worker
+        # Production resource limits for workers
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+

@@ -1,0 +1,10 @@
+- op: replace
+  path: /spec/template/spec/volumes/0
+  value:
+    name: attachments
+    csi:
+      driver: file.csi.azure.com
+      readOnly: false
+      volumeAttributes:
+        secretName: azure-file-secret
+        shareName: specify-assets-prod
