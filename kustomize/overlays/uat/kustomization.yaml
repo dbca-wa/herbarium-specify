@@ -6,7 +6,6 @@ namespace: herbarium-specify
 # Reference the base
 resources:
 - ../../base
-- azure-file-pv.yaml
 
 # Generate secrets from .env file
 secretGenerator:
@@ -34,10 +33,17 @@ patches:
   target:
     kind: PersistentVolumeClaim
     name: specify-storage
-- path: asset-storage-pvc-patch.yaml
+- path: asset-server-patch.yaml
   target:
+    kind: Deployment
+    name: asset-server
+# Exclude asset-storage PVC (using inline CSI volume instead)
+- patch: |-
+    $patch: delete
+    apiVersion: v1
     kind: PersistentVolumeClaim
-    name: asset-storage
+    metadata:
+      name: asset-storage
 # Exclude MariaDB resources (using Azure MySQL instead)
 # Remove MariaDB deployment, service, and PVC
 - patch: |-

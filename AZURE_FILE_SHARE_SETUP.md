@@ -1,7 +1,10 @@
 # Azure File Share Setup
 
 ## Overview
-Azure File Shares have been provisioned for Specify asset storage in both UAT and Production environments.
+
+Azure File Shares are used for persistent asset storage in Specify. The asset-server mounts the share directly using an inline CSI volume in the deployment spec, which avoids the need for cluster-scoped PersistentVolume resources.
+
+Data is stored on Azure's side and persists independently of pod lifecycle — restarts, rescheduling, or deletion won't affect the data.
 
 ## Configuration Details
 
@@ -11,23 +14,32 @@ Azure File Shares have been provisioned for Specify asset storage in both UAT an
 - `specify-assets-uat` (UAT environment)
 - `specify-assets-prod` (Production environment)
 
+## How It Works
+
+Instead of PV/PVC, we use an inline CSI volume directly in the asset-server deployment. This:
+- Requires only namespace-scoped permissions (no cluster-admin needed)
+- Mounts the pre-created Azure File Share via SMB
+- Data persists on Azure regardless of pod lifecycle
+
+```
+Azure File Share (specify-assets-{env})
+    ↓ (SMB mount via CSI driver)
+Secret (azure-file-secret) → Deployment (asset-server)
+    ↓
+Pod volume mount at /home/specify/attachments
+```
+
 ## Secret Management
 
-The Azure storage credentials are stored in a Kubernetes Secret in each environment's namespace. This secret is created manually in Rancher and is NOT stored in version control.
-
-### Creating the Secret in Rancher
-
-1. Navigate to: Cluster > Storage > Secrets
-2. Create/Edit Secret: `azure-file-secret`
-3. Namespace: `herbarium-specify` (or appropriate namespace)
-4. Type: Opaque
-5. Add keys:
-   - `azurestorageaccountname`: dbcaherbariumspecify
-   - `azurestorageaccountkey`: (the access key provided by OIM)
+The Azure storage credentials are stored in a Kubernetes Secret named `azure-file-secret` in the namespace. This secret is created manually in Rancher or via kubectl and is NOT stored in version control.
 
 ### Creating the Secret via kubectl
 
-For local development or manual setup:
+```bash
+kubectl apply -f kustomize/overlays/uat/azure-file-secret.yaml
+```
+
+Or create directly:
 
 ```bash
 kubectl create secret generic azure-file-secret \
@@ -36,216 +48,160 @@ kubectl create secret generic azure-file-secret \
   --namespace=herbarium-specify
 ```
 
-Or use the template file:
+### Creating the Secret in Rancher
 
-```bash
-# Copy and edit the template
-cp kustomize/overlays/uat/azure-file-secret.yaml.example kustomize/overlays/uat/azure-file-secret.yaml
-# Edit azure-file-secret.yaml and replace <STORAGE_ACCOUNT_KEY>
+1. Navigate to: Cluster > Storage > Secrets
+2. Create Secret: `azure-file-secret`
+3. Namespace: `herbarium-specify`
+4. Type: Opaque
+5. Add keys:
+   - `azurestorageaccountname`: dbcaherbariumspecify
+   - `azurestorageaccountkey`: (the access key provided by OIM)
 
-# Apply
-kubectl apply -f kustomize/overlays/uat/azure-file-secret.yaml
-```
+### Secret Template
 
-## UAT Environment Setup
+A template file is provided at `kustomize/overlays/uat/azure-file-secret.yaml.example`. Copy it, fill in the key, and the actual file is gitignored.
+
+## UAT Environment
 
 ### Files
 
-- `kustomize/overlays/uat/azure-file-pv.yaml` - PersistentVolume definition
-- `kustomize/overlays/uat/azure-file-secret.yaml` - Secret (gitignored, create locally)
-- `kustomize/overlays/uat/azure-file-secret.yaml.example` - Template
-- `kustomize/overlays/uat/asset-storage-pvc-patch.yaml` - PVC configuration
-- `kustomize/overlays/uat/kustomization.yaml` - Kustomize configuration
+- `kustomize/overlays/uat/asset-server-patch.yaml` - Patches the asset-server deployment to use inline CSI volume
+- `kustomize/overlays/uat/azure-file-secret.yaml` - Secret with credentials (gitignored)
+- `kustomize/overlays/uat/azure-file-secret.yaml.example` - Template for the secret
 
 ### Deployment
 
 ```bash
-# Ensure secret exists first
+# Ensure secret exists
 kubectl get secret azure-file-secret -n herbarium-specify
 
-# Deploy UAT configuration
+# If not, create it
+kubectl apply -f kustomize/overlays/uat/azure-file-secret.yaml
+
+# Apply configuration
 kubectl apply -k kustomize/overlays/uat/
 ```
 
 ### Verification
 
 ```bash
-# Check if the secret exists
+# Check the secret exists
 kubectl get secret azure-file-secret -n herbarium-specify
 
-# Check if PV is bound
-kubectl get pv asset-storage-uat-pv
+# Check asset-server is running
+kubectl get pods -n herbarium-specify -l component=asset-server
 
-# Check if PVC is bound
-kubectl get pvc asset-storage -n herbarium-specify
+# Verify the mount
+kubectl exec -n herbarium-specify deployment/asset-server -- df -h /home/specify/attachments
 
-# Check if the asset-server pod can mount the volume
-kubectl describe pod -l component=asset-server -n herbarium-specify
+# Check mount details
+kubectl exec -n herbarium-specify deployment/asset-server -- mount | grep attachments
 ```
 
-## Production Environment Setup
+## Production Environment
 
-Production follows the same pattern as UAT but uses different resources.
+Production uses the same inline CSI approach with `specify-assets-prod`.
 
-### Required Files (to be created)
+### Required Files (to be created in `kustomize/overlays/prod/`)
 
-Create these files in `kustomize/overlays/prod/`:
+**1. `asset-server-patch.yaml`:**
 
-**1. `azure-file-pv.yaml`** - PersistentVolume for production:
+```yaml
+- op: replace
+  path: /spec/template/spec/volumes/0
+  value:
+    name: attachments
+    csi:
+      driver: file.csi.azure.com
+      readOnly: false
+      volumeAttributes:
+        secretName: azure-file-secret
+        shareName: specify-assets-prod
+```
+
+**2. `azure-file-secret.yaml.example`:**
 
 ```yaml
 apiVersion: v1
-kind: PersistentVolume
+kind: Secret
 metadata:
-  name: asset-storage-prod-pv
-spec:
-  capacity:
-    storage: 500Gi
-  accessModes:
-    - ReadWriteMany
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: azurefile-csi-static
-  csi:
-    driver: file.csi.azure.com
-    readOnly: false
-    volumeHandle: asset-storage-prod-unique-id
-    volumeAttributes:
-      storageAccount: dbcaherbariumspecify
-      shareName: specify-assets-prod
-    nodeStageSecretRef:
-      name: azure-file-secret
-      namespace: herbarium-specify
+  name: azure-file-secret
+  namespace: herbarium-specify
+type: Opaque
+stringData:
+  azurestorageaccountname: dbcaherbariumspecify
+  azurestorageaccountkey: <STORAGE_ACCOUNT_KEY>
 ```
 
-**2. `asset-storage-pvc-patch.yaml`** - PVC patch for production:
-
-```yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: asset-storage
-spec:
-  storageClassName: azurefile-csi-static
-  accessModes:
-  - ReadWriteMany
-  volumeName: asset-storage-prod-pv
-  resources:
-    requests:
-      storage: 100Gi
-```
-
-**3. Update `kustomization.yaml`** - Add the PV resource:
-
-```yaml
-resources:
-- ../../base
-- azure-file-pv.yaml
-```
-
-And add the PVC patch to the patches section:
+**3. Update `kustomization.yaml`** — add the asset-server patch and exclude the base PVC:
 
 ```yaml
 patches:
-- path: asset-storage-pvc-patch.yaml
+- path: asset-server-patch.yaml
   target:
+    kind: Deployment
+    name: asset-server
+# Exclude asset-storage PVC (using inline CSI volume instead)
+- patch: |-
+    $patch: delete
+    apiVersion: v1
     kind: PersistentVolumeClaim
-    name: asset-storage
+    metadata:
+      name: asset-storage
 ```
 
 ### Production Deployment
 
 ```bash
-# Create the secret in production namespace
-kubectl create secret generic azure-file-secret \
-  --from-literal=azurestorageaccountname=dbcaherbariumspecify \
-  --from-literal=azurestorageaccountkey=<STORAGE_ACCOUNT_KEY> \
-  --namespace=herbarium-specify
+# Create the secret
+kubectl apply -f kustomize/overlays/prod/azure-file-secret.yaml
 
-# Deploy production configuration
+# Deploy
 kubectl apply -k kustomize/overlays/prod/
-```
-
-### Production Verification
-
-```bash
-# Check if the secret exists
-kubectl get secret azure-file-secret -n herbarium-specify
-
-# Check if PV is bound
-kubectl get pv asset-storage-prod-pv
-
-# Check if PVC is bound
-kubectl get pvc asset-storage -n herbarium-specify
-
-# Check if the asset-server pod can mount the volume
-kubectl describe pod -l component=asset-server -n herbarium-specify
-```
-
-## Architecture
-
-Static provisioning with pre-created Azure File Share:
-
-```
-Azure File Share (specify-assets-{uat|prod})
-    ↓
-Secret (azure-file-secret) → PersistentVolume (asset-storage-{uat|prod}-pv)
-    ↓
-PersistentVolumeClaim (asset-storage)
-    ↓
-Pod (asset-server)
 ```
 
 ## Troubleshooting
 
 ### Secret Not Found
 
-If the PV fails to mount with "secret not found":
+If the asset-server pod fails to start with mount errors:
 
 ```bash
-# Verify secret exists
 kubectl get secret azure-file-secret -n herbarium-specify
-
-# If missing, create it
-kubectl create secret generic azure-file-secret \
-  --from-literal=azurestorageaccountname=dbcaherbariumspecify \
-  --from-literal=azurestorageaccountkey=<KEY> \
-  --namespace=herbarium-specify
 ```
 
-### PVC Not Binding
-
-If the PVC stays in "Pending" state:
-
-```bash
-# Check PVC status
-kubectl describe pvc asset-storage -n herbarium-specify
-
-# Check PV status
-kubectl get pv asset-storage-{uat|prod}-pv
-
-# Common issues:
-# - PV volumeName doesn't match in PVC
-# - Storage class name mismatch
-# - Access mode incompatibility
-```
+If missing, create it from the template.
 
 ### Mount Failures
 
-If pods fail to mount the volume:
-
 ```bash
 # Check pod events
-kubectl describe pod <pod-name> -n herbarium-specify
+kubectl describe pod -l component=asset-server -n herbarium-specify
 
-# Check if Azure File Share is accessible
-# - Verify storage account key is correct
-# - Check Azure firewall rules allow AKS cluster
-# - Verify file share exists in storage account
+# Common issues:
+# - Storage account key is incorrect
+# - Azure firewall rules blocking AKS cluster
+# - File share doesn't exist in storage account
+```
+
+### Verifying Data Persistence
+
+Data lives on the Azure File Share, not in the pod. To confirm:
+
+```bash
+# Write a test file
+kubectl exec -n herbarium-specify deployment/asset-server -- touch /home/specify/attachments/test-file
+
+# Restart the pod
+kubectl rollout restart deployment/asset-server -n herbarium-specify
+
+# After restart, verify file still exists
+kubectl exec -n herbarium-specify deployment/asset-server -- ls /home/specify/attachments/test-file
 ```
 
 ## Security Notes
 
-- The secret file (`azure-file-secret.yaml`) is gitignored and should NEVER be committed
-- Use the `.example` template file for documentation
+- Secret files (`azure-file-secret.yaml`) are gitignored and must NEVER be committed
+- Use the `.example` template for documentation
 - Rotate storage account keys periodically and update the secret
-- Use RBAC to restrict access to secrets in production

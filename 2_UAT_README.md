@@ -131,7 +131,11 @@ kubectl logs -n herbarium-specify deployment/specify -f  # Follow
 ### Restart Deployment
 
 ```bash
+# Restart a single deployment
 kubectl rollout restart deployment/specify -n herbarium-specify
+
+# Restart ALL deployments (full environment restart)
+kubectl rollout restart deployment -n herbarium-specify
 ```
 
 ### Update Configuration
@@ -262,9 +266,9 @@ Your ingress configuration uses HTTP only (port 80) with `tls: []`.
 
 ### Storage
 
-Uses Azure managed-csi storage class (vs local-path in dev). PVCs are not large in UAT (2Gi/5Gi) for testing.
+Uses Azure managed-csi storage class (vs local-path in dev). PVCs are not large in UAT (2Gi) for testing.
 
-**Azure File Share for Asset Storage**: UAT uses a pre-provisioned Azure File Share (`specify-assets-uat`) for persistent asset storage. The connection requires a Kubernetes secret with storage account credentials. See [AZURE_FILE_SHARE_SETUP.md](AZURE_FILE_SHARE_SETUP.md) for details.
+**Azure File Share for Asset Storage**: The asset-server uses an inline CSI volume to mount a pre-created Azure File Share (`specify-assets-uat`) directly, without needing a PersistentVolume or PersistentVolumeClaim. Data persists on Azure independently of pod lifecycle. See [AZURE_FILE_SHARE_SETUP.md](AZURE_FILE_SHARE_SETUP.md) for details.
 
 ## Additional Resources
 
@@ -286,7 +290,7 @@ kubectl get pods -n herbarium-specify
 kubectl logs -n herbarium-specify deployment/specify --tail=50
 
 # Restart
-kubectl rollout restart deployment/specify -n herbarium-specify
+kubectl rollout restart deployment -n herbarium-specify
 
 # Reset environment
 ./scripts/reset-specify-uat.sh
@@ -322,7 +326,7 @@ kubectl rollout restart deployment/specify -n herbarium-specify
 **Storage:**
 
 -   **specify-storage**: Application data (2Gi, Azure managed-csi)
--   **asset-storage**: Uploaded files (5Gi, Azure managed-csi)
+-   **asset-storage**: Uploaded files (inline CSI volume → Azure File Share `specify-assets-uat`)
 
 ## Repository Structure
 
@@ -356,6 +360,7 @@ herbarium-specify/
 
 Gitignored (create locally):
 ├── kustomize/overlays/uat/.env         # Your UAT environment variables
+├── kustomize/overlays/uat/azure-file-secret.yaml  # Azure storage credentials
 ├── kustomize/creds/uat/                # UAT credentials (optional reference)
 └── uat_access.yaml                     # Your UAT kubeconfig
 ```
