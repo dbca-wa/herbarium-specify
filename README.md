@@ -3,17 +3,18 @@
 This repository contains Kubernetes deployment configurations for the Herbarium Specify 7 application using Kustomize for environment-specific overlays.
 
 ## Current Status
+
 UAT working. Ready for production (requires NGINX rule setting and connection to provisioned Azure Storage). Follow the Prod readme to get it going upon receipt of confirmation that NGINX url set up (requires admin privilleges).
 
 ## Overview
 
 Specify 7 is a biological collections management system. This deployment supports three environments:
+
 - **Development** (k3d local cluster)
 - **UAT** (Azure AKS via Rancher)
 - **TODO: Production** (Azure AKS via Rancher)
 
 It is advised you get things running locally first to get an understanding of Kubernetes commands.
-
 
 ## Documentation
 
@@ -21,9 +22,8 @@ It is advised you get things running locally first to get an understanding of Ku
 
 - **[1_DEV_README.md](1_DEV_README.md)** - Development environment setup and deployment (k3d local cluster)
 - **[2_UAT_README.md](2_UAT_README.md)** - UAT environment deployment guide (Rancher/Azure AKS)
-<!-- - **[3_PROD_README.md](3_PROD_README.md)** - Production deployment guide (Rancher/Azure AKS) -->
+- **[3_PROD_README.md](3_PROD_README.md)** - Production deployment guide (Rancher/Azure AKS)
 - **[COMMON_COMMANDS.md](COMMON_COMMANDS.md)** - Quick reference for kubectl and Kustomize commands
-
 
 ## Quick Start
 
@@ -60,7 +60,7 @@ kubectl apply -k kustomize/overlays/uat
 
 See [2_UAT_README.md](2_UAT_README.md) for detailed instructions.
 
-<!-- 
+<!--
 ### Production Environment
 
 ```bash
@@ -72,8 +72,6 @@ kubectl apply -k kustomize/overlays/prod
 ```
 
 See [3_PROD_README.md](3_PROD_README.md) for detailed instructions. -->
-
-
 
 ## Repository Structure
 
@@ -92,6 +90,7 @@ See [3_PROD_README.md](3_PROD_README.md) for detailed instructions. -->
 ├── 2_UAT_README.md             # UAT deployment guide
 └── COMMON_COMMANDS.md          # Command reference
 ```
+
 <!-- ├── 3_PROD_README.md            # Production deployment guide -->
 
 ## Configuration Management
@@ -116,6 +115,7 @@ cp kustomize/overlays/prod/.env.example kustomize/overlays/prod/.env
 ### Credentials
 
 Credentials are stored in `kustomize/creds/` (gitignored):
+
 - `creds/dev/` - Development credentials (for local testing)
 - `creds/uat/` - UAT database and IT user credentials
 - `creds/prod/` - Production database and IT user credentials
@@ -137,12 +137,12 @@ Credentials are stored in `kustomize/creds/` (gitignored):
 ### Database Permissions
 
 Azure MySQL users require the following permissions for migrations:
+
 - CREATE
-- ALTER  
+- ALTER
 - DROP
 - INDEX
 - REFERENCES
-
 
 ## Automation Scripts
 
@@ -173,15 +173,15 @@ chmod +x ./scripts/reset-specify-uat.sh
 
 ## Environment Comparison
 
-| Feature | Development | UAT | Production |
-|---------|------------|-----|------------|
-| **Cluster** | k3d (local) | Azure AKS | Azure AKS |
-| **Database** | MariaDB (in-cluster) | Azure MySQL | Azure MySQL |
-| **Access** | Port-forward (localhost:8000) | https://specify-test.dbca.wa.gov.au | https://specify.dbca.wa.gov.au |
-| **Replicas** | 1 | 1 | 2 |
-| **Debug Mode** | Enabled | Disabled | Disabled |
-| **SSL/TLS** | None | External proxy | External proxy |
-| **Change Control** | None | Informal | Formal |
+| Feature            | Development                   | UAT                                 | Production                     |
+| ------------------ | ----------------------------- | ----------------------------------- | ------------------------------ |
+| **Cluster**        | k3d (local)                   | Azure AKS                           | Azure AKS                      |
+| **Database**       | MariaDB (in-cluster)          | Azure MySQL                         | Azure MySQL                    |
+| **Access**         | Port-forward (localhost:8000) | https://specify-test.dbca.wa.gov.au | https://specify.dbca.wa.gov.au |
+| **Replicas**       | 1                             | 1                                   | 2                              |
+| **Debug Mode**     | Enabled                       | Disabled                            | Disabled                       |
+| **SSL/TLS**        | None                          | External proxy                      | External proxy                 |
+| **Change Control** | None                          | Informal                            | Formal                         |
 
 ## Common Operations
 
@@ -241,6 +241,7 @@ See [COMMON_COMMANDS.md](COMMON_COMMANDS.md) for comprehensive command reference
 ## Support
 
 For deployment issues or questions:
+
 1. Review the appropriate environment README (1_DEV_README.md, 2_UAT_README.md, or 3_PROD_README.md)
 2. Check [COMMON_COMMANDS.md](COMMON_COMMANDS.md) for command reference
 3. Review logs and events for error messages
