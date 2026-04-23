@@ -73,4 +73,4 @@ labels:
 
 # Add common annotations
 commonAnnotations:
-  version: v7.11.3
+  version: v7.12.0.4

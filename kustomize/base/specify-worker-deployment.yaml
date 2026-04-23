@@ -26,7 +26,7 @@ spec:
         command: ['sh', '-c', 'until nc -z redis 6379; do echo waiting for redis; sleep 2; done']
       containers:
       - name: specify-worker
-        image: specifyconsortium/specify7-service:v7.11.3
+        image: specifyconsortium/specify7-service:v7.12.0.4
         command: ["ve/bin/celery", "-A", "specifyweb", "worker", "-l", "INFO", "--concurrency=1"]
         envFrom:
         - secretRef:
@@ -41,6 +41,10 @@ spec:
           value: "redis://redis:6379/0"
         - name: CELERY_RESULT_BACKEND
           value: "redis://redis:6379/1"
+        - name: REDIS_HOST
+          value: "redis"
+        - name: REDIS_PORT
+          value: "6379"
         - name: TZ
           value: "Australia/Perth"
         - name: SPECIFY_CONFIG_DIR

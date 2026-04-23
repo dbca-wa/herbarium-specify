@@ -329,3 +329,15 @@ kubectl get pvc -n herbarium-specify
 - Use `--tail=N` to limit log output
 - Use `grep`, `awk`, and `jq` to filter kubectl output
 
+
+## Database Backups
+
+```bash
+# Back up UAT database to Azure File Share
+./scripts/backup-db.sh uat
+
+# Back up production database to Azure File Share
+./scripts/backup-db.sh prod
+```
+
+Backups are saved to the environment's Azure File Share and can be downloaded via Azure Storage Explorer. Always run a backup before version upgrades.
