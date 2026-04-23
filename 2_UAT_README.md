@@ -216,6 +216,8 @@ Your ingress configuration uses HTTP only (port 80) with `tls: []`.
 
 Uses Azure managed-csi storage class (vs local-path in dev). PVCs are not large in UAT (2Gi/5Gi) for testing.
 
+**Azure File Share for Asset Storage**: UAT uses a pre-provisioned Azure File Share (`specify-assets-uat`) for persistent asset storage. The connection requires a Kubernetes secret with storage account credentials. See [AZURE_FILE_SHARE_SETUP.md](AZURE_FILE_SHARE_SETUP.md) for details.
+
 ## Additional Resources
 
 -   **Common Commands**: See [COMMON_COMMANDS.md](COMMON_COMMANDS.md)

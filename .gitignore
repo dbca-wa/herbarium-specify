@@ -11,6 +11,7 @@ docs/
 kustomize/creds
 kustomize/overlays/prod/
 3_PROD_README.md
+*-secret.yaml
 
 # IDE and editor files
 .vscode/

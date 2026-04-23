@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: asset-storage-uat-pv
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: azurefile-csi-static
+  csi:
+    driver: file.csi.azure.com
+    readOnly: false
+    volumeHandle: asset-storage-uat-unique-id
+    volumeAttributes:
+      storageAccount: dbcaherbariumspecify
+      shareName: specify-assets-uat
+    nodeStageSecretRef:
+      name: azure-file-secret
+      namespace: herbarium-specify

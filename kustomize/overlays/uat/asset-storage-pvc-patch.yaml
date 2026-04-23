@@ -3,9 +3,10 @@ kind: PersistentVolumeClaim
 metadata:
   name: asset-storage
 spec:
-  storageClassName: azurefile-csi  # Azure Files, not Blob as discussed with OIM
+  storageClassName: azurefile-csi-static
   accessModes:
-  - ReadWriteMany  # In case of scaling asset-server
+  - ReadWriteMany
+  volumeName: asset-storage-uat-pv
   resources:
     requests:
       storage: 5Gi

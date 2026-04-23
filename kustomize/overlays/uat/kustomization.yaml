@@ -6,6 +6,7 @@ namespace: herbarium-specify
 # Reference the base
 resources:
 - ../../base
+- azure-file-pv.yaml
 
 # Generate secrets from .env file
 secretGenerator:
