@@ -18,7 +18,9 @@ data:
     server {
         listen 80;
         server_name _;
-        # Remove client_max_body_size - edge proxy already sets this
+
+        # Allow large file uploads (e.g. CSV via Workbench)
+        client_max_body_size 50M;
 
         # Proxy to Specify backend
         location / {
