@@ -52,6 +52,8 @@ spec:
           value: "6379"
         - name: TZ
           value: "Australia/Perth"
+        - name: TIME_ZONE
+          value: "Australia/Perth"
         - name: SPECIFY_CONFIG_DIR
           value: "/opt/specify7/config"
         - name: ALLOWED_HOSTS
