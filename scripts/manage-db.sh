@@ -37,7 +37,8 @@ set -euo pipefail
 
 # --- Configuration ---
 NAMESPACE="herbarium-specify"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+FILE_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 VANILLA_FILENAME="vanilla.sql"
 
 # Colors
@@ -227,7 +228,7 @@ if [ "$DB_TYPE" = "local" ]; then
 
     # --- SAVE (backup) ---
     if [ "$MODE" = "save" ]; then
-        BACKUP_FILE="/tmp/specify_${DB_NAME}_backup_${TIMESTAMP}.sql"
+        BACKUP_FILE="/tmp/specify_${DB_NAME}_backup_${FILE_TIMESTAMP}.sql"
         echo_step "Creating backup..."
         kubectl exec -n "$NAMESPACE" "$MARIADB_POD" -- \
             mysqldump -u "$DB_USER" -p"$DB_PASS" --single-transaction "$DB_NAME" > "$BACKUP_FILE" 2>/dev/null || {
@@ -311,24 +312,15 @@ if [ "$DB_TYPE" = "local" ]; then
         drop_all_tables_local "$MARIADB_POD" "$DB_USER" "$DB_PASS" "$DB_NAME"
         echo_info "All tables dropped"
 
-        echo_step "Restarting Specify (entrypoint will partially set up DB)..."
-        kubectl rollout restart deployment/specify deployment/specify-worker -n "$NAMESPACE" > /dev/null 2>&1
-
-        # Wait for entrypoint to finish (it fakes the initial migration)
-        for i in $(seq 1 60); do
-            kubectl logs -n "$NAMESPACE" deployment/specify --tail=3 2>/dev/null | grep -q "Booting worker" && break
-            sleep 5
-        done
-
-        echo_step "Fixing migration state (dropping partial tables)..."
-        # Re-fetch pod name in case it changed after restart
-        MARIADB_POD=$(kubectl get pods -n "$NAMESPACE" -l app=specify,component=database \
-            -o jsonpath='{.items[0].metadata.name}')
-        drop_all_tables_local "$MARIADB_POD" "$DB_USER" "$DB_PASS" "$DB_NAME"
-
-        echo_step "Running correct migrations (creating ~220 tables)..."
+        echo_step "Running schema creation (base_specify_migration)..."
         kubectl exec -n "$NAMESPACE" deployment/specify -- \
             ve/bin/python manage.py base_specify_migration --database=master 2>/dev/null || true
+
+        echo_step "Faking initial migration record..."
+        kubectl exec -n "$NAMESPACE" deployment/specify -- \
+            ve/bin/python manage.py base_specify_migration --use-override --database=master 2>/dev/null || true
+
+        echo_step "Running Django migrations (creating remaining tables)..."
         kubectl exec -n "$NAMESPACE" deployment/specify -- \
             ve/bin/python manage.py migrate --database=master 2>/dev/null || true
 
@@ -446,7 +438,7 @@ fi
 
 # --- SAVE (backup) ---
 if [ "$MODE" = "save" ]; then
-    BACKUP_FILE="specify_${DB_NAME}_backup_${TIMESTAMP}.sql"
+    BACKUP_FILE="specify_${DB_NAME}_backup_${FILE_TIMESTAMP}.sql"
     echo_step "Creating backup: $BACKUP_FILE"
     POD="backup-${TIMESTAMP}"
     run_share_pod "$POD" "mysqldump --host=$DB_HOST --port=$DB_PORT --user=\$(cat /secrets/MASTER_NAME) --single-transaction --quick $DB_NAME > /share/$BACKUP_FILE && echo DONE && ls -lh /share/$BACKUP_FILE"
@@ -507,12 +499,22 @@ if [ "$MODE" = "load" ] || [ "$MODE" = "load_vanilla" ] || [ "$MODE" = "load_las
     read -p "Type 'yes' to continue: " CONFIRM
     [ "$CONFIRM" != "yes" ] && { echo_error "Cancelled"; exit 0; }
 
-    # Drop all tables
+    # Drop all tables via kubectl exec (reliable, no escaping issues)
     echo_step "Dropping all tables..."
-    POD="reset-${TIMESTAMP}"
-    run_share_pod "$POD" "mysql --host=$DB_HOST --port=$DB_PORT --user=\$(cat /secrets/MASTER_NAME) $DB_NAME -e \"SET FOREIGN_KEY_CHECKS=0; SET @t=NULL; SELECT GROUP_CONCAT(CONCAT('DROP TABLE \\\`',table_name,'\\\`')) INTO @t FROM information_schema.tables WHERE table_schema='$DB_NAME'; SET @t=IFNULL(@t,'SELECT 1'); PREPARE s FROM @t; EXECUTE s; DEALLOCATE PREPARE s; SET FOREIGN_KEY_CHECKS=1;\" && echo DONE"
-    wait_for_pod "$POD" 30 || { echo_error "Failed to drop tables"; cleanup_pod "$POD"; exit 1; }
-    cleanup_pod "$POD"
+    kubectl exec -n "$NAMESPACE" deployment/specify -- python -c "
+import django, os
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'specifyweb.settings')
+django.setup()
+from django.db import connections
+cursor = connections['master'].cursor()
+cursor.execute('SET FOREIGN_KEY_CHECKS = 0')
+cursor.execute('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()')
+tables = [r[0] for r in cursor.fetchall()]
+if tables:
+    cursor.execute('DROP TABLE ' + ', '.join(f'\`{t}\`' for t in tables))
+cursor.execute('SET FOREIGN_KEY_CHECKS = 1')
+print(f'Dropped {len(tables)} tables')
+" 2>/dev/null
     echo_info "Tables dropped"
 
     # Load file
@@ -546,35 +548,38 @@ if [ "$MODE" = "nuke" ]; then
 
     NUKE_START=$(date +%s)
 
-    # Drop all tables
+    # Drop all tables via kubectl exec (reliable)
     echo_step "Dropping all tables..."
-    POD="nuke-reset-${TIMESTAMP}"
-    run_share_pod "$POD" "mysql --host=$DB_HOST --port=$DB_PORT --user=\$(cat /secrets/MASTER_NAME) $DB_NAME -e \"SET FOREIGN_KEY_CHECKS=0; SET @t=NULL; SELECT GROUP_CONCAT(CONCAT('DROP TABLE \\\`',table_name,'\\\`')) INTO @t FROM information_schema.tables WHERE table_schema='$DB_NAME'; SET @t=IFNULL(@t,'SELECT 1'); PREPARE s FROM @t; EXECUTE s; DEALLOCATE PREPARE s; SET FOREIGN_KEY_CHECKS=1;\" && echo DONE"
-    wait_for_pod "$POD" 30 || { echo_error "Failed"; cleanup_pod "$POD"; exit 1; }
-    cleanup_pod "$POD"
+    kubectl exec -n "$NAMESPACE" deployment/specify -- python -c "
+import django, os
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'specifyweb.settings')
+django.setup()
+from django.db import connections
+cursor = connections['master'].cursor()
+cursor.execute('SET FOREIGN_KEY_CHECKS = 0')
+cursor.execute('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()')
+tables = [r[0] for r in cursor.fetchall()]
+if tables:
+    cursor.execute('DROP TABLE ' + ', '.join(f'\`{t}\`' for t in tables))
+cursor.execute('SET FOREIGN_KEY_CHECKS = 1')
+print(f'Dropped {len(tables)} tables')
+" 2>/dev/null
     echo_info "All tables dropped"
 
-    # Restart Specify (entrypoint will partially set up)
-    echo_step "Restarting Specify (entrypoint runs partial setup)..."
-    kubectl rollout restart deployment/specify deployment/specify-worker -n "$NAMESPACE" > /dev/null 2>&1
-    for i in $(seq 1 60); do
-        kubectl logs -n "$NAMESPACE" deployment/specify --tail=3 2>/dev/null | grep -q "Booting worker" && break
-        sleep 5
-    done
-
-    # Fix: drop the partial tables and re-run correctly
-    echo_step "Fixing migration state..."
-    POD="nuke-fix-${TIMESTAMP}"
-    run_share_pod "$POD" "mysql --host=$DB_HOST --port=$DB_PORT --user=\$(cat /secrets/MASTER_NAME) $DB_NAME -e \"SET FOREIGN_KEY_CHECKS=0; SET @t=NULL; SELECT GROUP_CONCAT(CONCAT('DROP TABLE \\\`',table_name,'\\\`')) INTO @t FROM information_schema.tables WHERE table_schema='$DB_NAME'; SET @t=IFNULL(@t,'SELECT 1'); PREPARE s FROM @t; EXECUTE s; DEALLOCATE PREPARE s; SET FOREIGN_KEY_CHECKS=1;\" && echo DONE"
-    wait_for_pod "$POD" 30 || true
-    cleanup_pod "$POD"
-
-    echo_step "Running correct migrations (~220 tables)..."
+    # Run correct migration sequence
+    echo_step "Running schema creation (base_specify_migration)..."
     kubectl exec -n "$NAMESPACE" deployment/specify -- \
         ve/bin/python manage.py base_specify_migration --database=master 2>/dev/null || true
+
+    echo_step "Faking initial migration record..."
+    kubectl exec -n "$NAMESPACE" deployment/specify -- \
+        ve/bin/python manage.py base_specify_migration --use-override --database=master 2>/dev/null || true
+
+    echo_step "Running Django migrations (creating remaining tables)..."
     kubectl exec -n "$NAMESPACE" deployment/specify -- \
         ve/bin/python manage.py migrate --database=master 2>/dev/null || true
 
+    # Restart for clean state
     echo_step "Restarting for clean state..."
     kubectl rollout restart deployment/specify deployment/specify-worker -n "$NAMESPACE" > /dev/null 2>&1
     for i in $(seq 1 60); do
