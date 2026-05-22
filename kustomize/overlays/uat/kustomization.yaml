@@ -29,10 +29,6 @@ patches:
   target:
     kind: Ingress
     name: specify-ingress
-- path: pvc-patch.yaml
-  target:
-    kind: PersistentVolumeClaim
-    name: specify-storage
 - path: asset-server-patch.yaml
   target:
     kind: Deployment

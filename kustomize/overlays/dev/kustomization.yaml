@@ -25,10 +25,6 @@ patches:
   target:
     kind: Ingress
     name: specify-ingress
-- path: pvc-patch.yaml
-  target:
-    kind: PersistentVolumeClaim
-    name: specify-storage
 - path: mariadb-pvc-patch.yaml
   target:
     kind: PersistentVolumeClaim

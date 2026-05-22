@@ -59,9 +59,6 @@ spec:
         - name: ALLOWED_HOSTS
           value: "*"
         volumeMounts:
-        - name: specify6
-          mountPath: /opt/Specify
-          readOnly: true
         - name: static-files
           mountPath: /volumes/static-files
         resources:
@@ -72,8 +69,5 @@ spec:
             memory: "2Gi"
             cpu: "1000m"
       volumes:
-      - name: specify6
-        persistentVolumeClaim:
-          claimName: specify-storage
       - name: static-files
         emptyDir: {}  # Specify writes here but Nginx doesn't need to read it

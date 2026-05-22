@@ -54,9 +54,6 @@ spec:
         - name: ALLOWED_HOSTS
           value: "*"
         volumeMounts:
-        - name: specify6
-          mountPath: /opt/Specify
-          readOnly: true
         - name: static-files
           mountPath: /volumes/static-files
         resources:
@@ -67,8 +64,5 @@ spec:
             memory: "1Gi"
             cpu: "500m"
       volumes:
-      - name: specify6
-        persistentVolumeClaim:
-          claimName: specify-storage
       - name: static-files
         emptyDir: {}
