@@ -325,28 +325,35 @@ if [ "$DB_TYPE" = "local" ]; then
         drop_all_tables_local "$MARIADB_POD" "$DB_USER" "$DB_PASS" "$DB_NAME"
         echo_info "All tables dropped"
 
-        echo_step "Running schema creation (base_specify_migration)..."
+        echo_step "Running Django migrations (creating all tables from scratch)..."
         kubectl exec -n "$NAMESPACE" deployment/specify -- \
-            ve/bin/python manage.py base_specify_migration --database=master 2>/dev/null || true
+            ve/bin/python manage.py migrate --database=master 2>&1 | grep -E "Applying|OK$|Operations|Running" || true
 
-        echo_step "Faking initial migration record..."
-        kubectl exec -n "$NAMESPACE" deployment/specify -- \
-            ve/bin/python manage.py base_specify_migration --use-override --database=master 2>/dev/null || true
+        # No restart needed — migrations ran in the existing pod.
+        sleep 3
 
-        echo_step "Running Django migrations (creating remaining tables)..."
-        kubectl exec -n "$NAMESPACE" deployment/specify -- \
-            ve/bin/python manage.py migrate --database=master 2>/dev/null || true
-
-        echo_step "Restarting for clean state..."
-        kubectl rollout restart deployment/specify deployment/specify-worker -n "$NAMESPACE" > /dev/null 2>&1
-        for i in $(seq 1 60); do
-            kubectl logs -n "$NAMESPACE" deployment/specify --tail=3 2>/dev/null | grep -q "Booting worker" && break
+        # Verify setup_tool works
+        echo_step "Verifying Guided Setup endpoint..."
+        for i in $(seq 1 12); do
+            RESULT=$(kubectl exec -n "$NAMESPACE" deployment/specify -- python -c "
+import urllib.request
+try:
+    r = urllib.request.urlopen('http://localhost:8000/setup_tool/setup_progress/')
+    print('OK')
+except:
+    print('WAIT')
+" 2>/dev/null)
+            [ "$RESULT" = "OK" ] && break
             sleep 5
         done
 
         NUKE_END=$(date +%s)
         NUKE_TOTAL=$(( NUKE_END - NUKE_START ))
-        echo_info "Done! (${NUKE_TOTAL}s total)"
+        if [ "$RESULT" = "OK" ]; then
+            echo_info "Done! Guided Setup ready (${NUKE_TOTAL}s total)"
+        else
+            echo_warn "Done (${NUKE_TOTAL}s) but setup endpoint not responding yet — wait a moment and refresh"
+        fi
         echo ""
         echo -e "Access: ${GREEN}http://localhost:8000/specify/${NC} — Guided Setup wizard will appear"
         exit 0
@@ -555,7 +562,7 @@ fi
 # --- NUKE (UAT/prod) ---
 if [ "$MODE" = "nuke" ]; then
     echo -e "${RED}This will WIPE the $ENV database completely. Guided Setup wizard will appear.${NC}"
-    echo -e "${RED}(Takes ~5 min — cannot DROP DATABASE due to permissions, so we drop all tables and re-run migrations)${NC}"
+    echo -e "${RED}(Takes ~3-5 min — drops all tables and runs Django migrations from scratch)${NC}"
     read -p "Type 'yes' to continue: " CONFIRM
     [ "$CONFIRM" != "yes" ] && { echo_error "Cancelled"; exit 0; }
 
@@ -579,30 +586,33 @@ print(f'Dropped {len(tables)} tables')
 " 2>/dev/null
     echo_info "All tables dropped"
 
-    # Run correct migration sequence
-    echo_step "Running schema creation (base_specify_migration)..."
+    echo_step "Running Django migrations (creating all tables from scratch)..."
     kubectl exec -n "$NAMESPACE" deployment/specify -- \
-        ve/bin/python manage.py base_specify_migration --database=master 2>/dev/null || true
+        ve/bin/python manage.py migrate --database=master 2>&1 | grep -E "Applying|OK$|Operations|Running" || true
 
-    echo_step "Faking initial migration record..."
-    kubectl exec -n "$NAMESPACE" deployment/specify -- \
-        ve/bin/python manage.py base_specify_migration --use-override --database=master 2>/dev/null || true
-
-    echo_step "Running Django migrations (creating remaining tables)..."
-    kubectl exec -n "$NAMESPACE" deployment/specify -- \
-        ve/bin/python manage.py migrate --database=master 2>/dev/null || true
-
-    # Restart for clean state
-    echo_step "Restarting for clean state..."
-    kubectl rollout restart deployment/specify deployment/specify-worker -n "$NAMESPACE" > /dev/null 2>&1
-    for i in $(seq 1 60); do
-        kubectl logs -n "$NAMESPACE" deployment/specify --tail=3 2>/dev/null | grep -q "Booting worker" && break
+    # Verify setup_tool works
+    sleep 3
+    echo_step "Verifying Guided Setup endpoint..."
+    for i in $(seq 1 12); do
+        RESULT=$(kubectl exec -n "$NAMESPACE" deployment/specify -- python -c "
+import urllib.request
+try:
+    r = urllib.request.urlopen('http://localhost:8000/setup_tool/setup_progress/')
+    print('OK')
+except:
+    print('WAIT')
+" 2>/dev/null)
+        [ "$RESULT" = "OK" ] && break
         sleep 5
     done
 
     NUKE_END=$(date +%s)
     NUKE_TOTAL=$(( NUKE_END - NUKE_START ))
-    echo_info "Done! (${NUKE_TOTAL}s total)"
+    if [ "$RESULT" = "OK" ]; then
+        echo_info "Done! Guided Setup ready (${NUKE_TOTAL}s total)"
+    else
+        echo_warn "Done (${NUKE_TOTAL}s) but setup endpoint not responding yet — wait a moment and refresh"
+    fi
     echo ""
     case "$ENV" in
         uat)  echo -e "Access: ${GREEN}https://specify-test.dbca.wa.gov.au/specify/${NC} — Guided Setup wizard" ;;
