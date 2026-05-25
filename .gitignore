@@ -2,13 +2,10 @@
 uat_access.yaml
 prod_access.yaml
 az-aks-prod01.yaml
-scripts/uat-db-azure.sh
-scripts/AZURE_BACKUP_README.md
 .github
 *.env
 *.sql
 docs/
-!kustomize/base/specify_dev_dump.sql
 kustomize/creds
 *-secret.yaml
 

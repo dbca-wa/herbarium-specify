@@ -14,7 +14,3 @@ resources:
 - mariadb-pvc.yaml
 - asset-storage-pvc.yaml
 - ingress.yaml
-
-# ConfigMap for database init script is created separately via kubectl
-# to avoid kustomize issues with control characters in SQL dump
-# Run: kubectl create configmap db-init-script --from-file=init.sql=base/specify_dev_dump.sql -n herbarium-specify
