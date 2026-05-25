@@ -170,11 +170,18 @@ if [ "$ENV" = "dev" ]; then
             exit 1
         }
 
-        echo_step "Deleting namespace..."
-        kubectl delete namespace $NAMESPACE --ignore-not-found=true > /dev/null 2>&1 || true
-        for i in $(seq 1 60); do
+        echo_step "Deleting namespace (may take 1-2 min for PVC cleanup)..."
+        kubectl delete namespace $NAMESPACE --ignore-not-found=true > /dev/null 2>&1 &
+        DEL_PID=$!
+        while kill -0 $DEL_PID 2>/dev/null; do
+            printf "."
+            sleep 3
+        done
+        echo ""
+        # Wait for it to actually be gone
+        for i in $(seq 1 40); do
             kubectl get namespace $NAMESPACE > /dev/null 2>&1 || break
-            sleep 2
+            sleep 3
         done
         echo_info "Namespace deleted"
 
