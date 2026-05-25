@@ -148,6 +148,19 @@ echo "  Context:     $CONTEXT"
 [ "$MODE" = "load" ] && [ -n "$RESTORE_FILE" ] && echo "  File:        $RESTORE_FILE"
 echo ""
 
+# --- Ensure kubeconfig is merged for UAT/prod ---
+if [ "$DB_TYPE" = "azure" ]; then
+    ACCESS_FILE=""
+    [ "$ENV" = "uat" ] && ACCESS_FILE="uat_access.yaml"
+    [ "$ENV" = "prod" ] && ACCESS_FILE="az-aks-prod01.yaml"
+
+    if [ -n "$ACCESS_FILE" ] && [ -f "$ACCESS_FILE" ]; then
+        # Merge with access file taking priority (listed first)
+        KUBECONFIG="$ACCESS_FILE":~/.kube/config kubectl config view --flatten > ~/.kube/config.new 2>/dev/null
+        mv ~/.kube/config.new ~/.kube/config
+    fi
+fi
+
 # --- Switch context ---
 echo_step "Switching to context: $CONTEXT"
 kubectl config use-context "$CONTEXT" > /dev/null 2>&1 || {

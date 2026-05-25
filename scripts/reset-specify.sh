@@ -204,6 +204,16 @@ fi
 # UAT / PROD
 # =============================================================================
 
+# Ensure kubeconfig is merged
+ACCESS_FILE=""
+[ "$ENV" = "uat" ] && ACCESS_FILE="uat_access.yaml"
+[ "$ENV" = "prod" ] && ACCESS_FILE="az-aks-prod01.yaml"
+
+if [ -n "$ACCESS_FILE" ] && [ -f "$ACCESS_FILE" ]; then
+    KUBECONFIG="$ACCESS_FILE":~/.kube/config kubectl config view --flatten > ~/.kube/config.new 2>/dev/null
+    mv ~/.kube/config.new ~/.kube/config
+fi
+
 echo_step "Switching to context: $CONTEXT"
 kubectl config use-context "$CONTEXT" > /dev/null 2>&1 || {
     echo_error "Failed to switch to context $CONTEXT"
