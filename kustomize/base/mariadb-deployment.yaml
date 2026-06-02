@@ -22,6 +22,10 @@ spec:
       containers:
       - name: mariadb
         image: mariadb:10.11
+        args:
+        - "--max-allowed-packet=256M"
+        - "--wait-timeout=28800"
+        - "--interactive-timeout=28800"
         ports:
         - containerPort: 3306
           name: mysql
