@@ -73,6 +73,8 @@ spec:
                         value: "/opt/specify7/config"
                       - name: ALLOWED_HOSTS
                         value: "*"
+                      - name: GUNICORN_TIMEOUT
+                        value: "120"
                   volumeMounts:
                       - name: static-files
                         mountPath: /volumes/static-files
@@ -81,7 +83,7 @@ spec:
                           memory: "512Mi"
                           cpu: "250m"
                       limits:
-                          memory: "2Gi"
+                          memory: "3Gi"
                           cpu: "1000m"
             volumes:
                 - name: static-files
