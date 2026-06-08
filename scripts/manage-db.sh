@@ -112,7 +112,7 @@ fi
 # --- Environment config ---
 case "$ENV" in
     dev)
-        CONTEXT="k3d-specify-test"
+        CONTEXT="specify-dev"
         SHARE_NAME=""
         DB_TYPE="local"
         VANILLA_PATH="kustomize/base/$VANILLA_FILENAME"
@@ -123,7 +123,7 @@ case "$ENV" in
         DB_TYPE="azure"
         ;;
     prod)
-        CONTEXT="az-aks-prod01"
+        CONTEXT="aks-bcs-prod-01"
         SHARE_NAME="specify-assets-prod"
         DB_TYPE="azure"
         ;;
@@ -151,8 +151,8 @@ echo ""
 # --- Ensure kubeconfig is merged for UAT/prod ---
 if [ "$DB_TYPE" = "azure" ]; then
     ACCESS_FILE=""
-    [ "$ENV" = "uat" ] && ACCESS_FILE="uat_access.yaml"
-    [ "$ENV" = "prod" ] && ACCESS_FILE="az-aks-prod01.yaml"
+    [ "$ENV" = "uat" ] && ACCESS_FILE="az-aks-oim03.yaml"
+    [ "$ENV" = "prod" ] && ACCESS_FILE="aks-bcs-prod-01.yaml"
 
     if [ -n "$ACCESS_FILE" ] && [ -f "$ACCESS_FILE" ]; then
         # Merge with access file taking priority (listed first)
@@ -165,7 +165,7 @@ fi
 echo_step "Switching to context: $CONTEXT"
 kubectl config use-context "$CONTEXT" > /dev/null 2>&1 || {
     echo_error "Failed to switch to context $CONTEXT"
-    [ "$ENV" = "dev" ] && echo "Is your k3d cluster running? Try: k3d cluster start specify-test"
+    [ "$ENV" = "dev" ] && echo "Is your k3d cluster running? Try: k3d cluster start specify-dev"
     exit 1
 }
 echo_info "Context: $CONTEXT"

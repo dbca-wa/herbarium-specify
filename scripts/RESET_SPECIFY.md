@@ -14,10 +14,10 @@ Tears down and redeploys all Kubernetes resources (pods, services, ingress, etc)
 
 | Environment | Context | What it does |
 |-------------|---------|--------------|
-| `dev` | `k3d-specify-test` | Deletes namespace, recreates, redeploys from kustomize |
-| `dev --nuke` | `k3d-specify-test` | Deletes entire k3d cluster, recreates from scratch |
+| `dev` | `specify-dev` | Deletes namespace, recreates, redeploys from kustomize |
+| `dev --nuke` | `specify-dev` | Deletes entire k3d cluster, recreates from scratch |
 | `uat` | `az-aks-oim03` | Deletes and redeploys resources in namespace |
-| `prod` | `az-aks-prod01` | Deletes and redeploys resources in namespace |
+| `prod` | `aks-bcs-prod-01` | Deletes and redeploys resources in namespace |
 
 ## When to use
 

@@ -31,10 +31,16 @@ This guide will help you run Specify 7 locally on your Mac using K3d (Kubernetes
 ### 1. Create K3d Cluster (First Time Only)
 
 ```bash
-k3d cluster create specify-test
+k3d cluster create specify-dev
 ```
 
-This creates a local Kubernetes cluster named `specify-test`.
+This creates a local Kubernetes cluster named `specify-dev`.
+
+After creation, rename the context for clarity:
+
+```bash
+kubectl config rename-context k3d-specify-dev specify-dev
+```
 
 ### 2. Copy Database Dump to Cluster (First Time Only)
 
@@ -42,10 +48,10 @@ This creates a local Kubernetes cluster named `specify-test`.
 # From the kustomize directory
 
 # Create the temp directory
-docker exec k3d-specify-test-server-0 mkdir -p /tmp/specify-init
+docker exec specify-dev-server-0 mkdir -p /tmp/specify-init
 
 # Copy the file to the temp directory
-docker cp base/specify_dev_dump.sql k3d-specify-test-server-0:/tmp/specify-init/init.sql
+docker cp base/specify_dev_dump.sql specify-dev-server-0:/tmp/specify-init/init.sql
 ```
 
 This copies the database dump into the K3d container so MariaDB can initialize it. The dump is from specify 6 required to set up db migrations for specify 7.
@@ -178,7 +184,7 @@ Press `Cmd+C` in the terminal where port-forward is running.
 ### Stop the Cluster (Saves Resources)
 
 ```bash
-k3d cluster stop specify-test
+k3d cluster stop specify-dev
 ```
 
 This stops the cluster but keeps all data. Your database and files are preserved.
@@ -186,7 +192,7 @@ This stops the cluster but keeps all data. Your database and files are preserved
 ### Start the Cluster Again
 
 ```bash
-k3d cluster start specify-test
+k3d cluster start specify-dev
 
 # Wait a moment for pods to start, then port-forward again
 kubectl port-forward -n herbarium-specify svc/nginx 8000:80
@@ -199,7 +205,7 @@ kubectl port-forward -n herbarium-specify svc/nginx 8000:80
 kubectl delete namespace herbarium-specify
 
 # Or delete the entire cluster
-k3d cluster delete specify-test
+k3d cluster delete specify-dev
 ```
 
 **Warning**: Deleting the namespace or cluster will delete all data including the database! This is a last resort and NOT RECOMMENDED IN UAT / PRODUCTION.
@@ -258,7 +264,7 @@ You should see files being copied.
 **Check if SQL dump was copied:**
 
 ```bash
-docker exec k3d-specify-test-server-0 ls -lh /tmp/specify-init/init.sql
+docker exec specify-dev-server-0 ls -lh /tmp/specify-init/init.sql
 ```
 
 Should show a ~23MB file.

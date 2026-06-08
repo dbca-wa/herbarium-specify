@@ -34,9 +34,9 @@ Running with no action shows usage and available options.
 
 | Environment | Context | Database | Backups/Vanilla Location |
 |-------------|---------|----------|--------------------------|
-| `dev` | `k3d-specify-test` | In-cluster MariaDB | `/tmp` (backups), `kustomize/base/vanilla.sql` |
+| `dev` | `specify-dev` | In-cluster MariaDB | `/tmp` (backups), `kustomize/base/vanilla.sql` |
 | `uat` | `az-aks-oim03` | Azure MySQL | Azure File Share (`specify-assets-uat`) |
-| `prod` | `az-aks-prod01` | Azure MySQL | Azure File Share (`specify-assets-prod`) |
+| `prod` | `aks-bcs-prod-01` | Azure MySQL | Azure File Share (`specify-assets-prod`) |
 
 ## Typical Workflow
 

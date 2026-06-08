@@ -28,19 +28,23 @@ This guide covers deploying Specify 7 to the UAT environment on Azure AKS (manag
 
 ### 1. Load UAT Credentials
 
-The `uat_access.yaml` file in the repo root should contain your cluster credentials (downloadable from rancher-uat top bar after selecting the cluster). Copy the contents and create uat_access.yaml. Merge it with your kubeconfig:
+Download the kubeconfig from Rancher UAT (top-right button after selecting the `az-aks-oim03` cluster). Save it as `az-aks-oim03.yaml` in the repo root (this file is gitignored).
+
+Merge it with your kubeconfig:
 
 ```bash
 # Backup current config
 cp ~/.kube/config ~/.kube/config.backup
 
-# Merge UAT credentials
-KUBECONFIG=~/.kube/config:uat_access.yaml kubectl config view --flatten > ~/.kube/config.new
+# Merge (UAT file FIRST so its entries take priority)
+KUBECONFIG=az-aks-oim03.yaml:~/.kube/config kubectl config view --flatten > ~/.kube/config.new
 mv ~/.kube/config.new ~/.kube/config
 
-# Verify
+# Verify — you should see az-aks-oim03 in the list
 kubectl config get-contexts
 ```
+
+**Note:** The scripts (`manage-db.sh`, `reset-specify.sh`) handle this merge automatically when you run them with `uat` — you only need to do this manually once or if your token expires.
 
 ### 2. Switch to UAT Context
 
@@ -214,16 +218,16 @@ kubectl config view -o jsonpath='{range .contexts[*]}{.name}{"\t"}{.context.user
 kubectl config view -o jsonpath='{range .users[*]}{.name}{"\n"}{end}'
 
 # Quick test — bypass the merged config entirely
-KUBECONFIG=uat_access.yaml kubectl get pods -n herbarium-specify
+KUBECONFIG=az-aks-oim03.yaml kubectl get pods -n herbarium-specify
 ```
 
-If the `KUBECONFIG=uat_access.yaml` command works but normal kubectl doesn't, the merge is the problem.
+If the `KUBECONFIG=az-aks-oim03.yaml` command works but normal kubectl doesn't, the merge is the problem.
 
 **Fix** — clean up stale entries and re-merge:
 
 ```bash
 # 1. Before downloading a new kubeconfig from Rancher, rename the user
-#    in uat_access.yaml from "rancher" to "rancher-uat" (in users and contexts)
+#    in az-aks-oim03.yaml from "rancher" to "rancher-uat" (in users and contexts)
 #    to avoid collisions with other clusters
 
 # 2. Remove any stale user entries that may have the old token
@@ -231,7 +235,7 @@ kubectl config unset users.rancher
 kubectl config unset users.az-aks-oim03  # if this exists from a previous merge
 
 # 3. Re-merge
-KUBECONFIG=~/.kube/config:uat_access.yaml kubectl config view --flatten > ~/.kube/config.new
+KUBECONFIG=~/.kube/config:az-aks-oim03.yaml kubectl config view --flatten > ~/.kube/config.new
 mv ~/.kube/config.new ~/.kube/config
 
 # 4. Ensure the context points to the correct user
@@ -242,7 +246,7 @@ kubectl config use-context az-aks-oim03
 kubectl get pods -n herbarium-specify
 ```
 
-**Prevention** — always rename the user in `uat_access.yaml` to something unique (e.g. `rancher-uat`) before merging. The user name is just a local label and doesn't affect authentication.
+**Prevention** — always rename the user in `az-aks-oim03.yaml` to something unique (e.g. `rancher-uat`) before merging. The user name is just a local label and doesn't affect authentication.
 
 ## Architecture Notes
 
@@ -354,7 +358,7 @@ herbarium-specify/
 │           └── ...
 ├── scripts/
 │   └── reset-specify-uat.sh           # UAT reset script
-├── uat_access.yaml                     # UAT cluster credentials (gitignored)
+├── az-aks-oim03.yaml                     # UAT cluster credentials (gitignored)
 ├── 2_UAT_README.md                     # This file
 └── COMMON_COMMANDS.md                  # kubectl reference
 
@@ -362,7 +366,7 @@ Gitignored (create locally):
 ├── kustomize/overlays/uat/.env         # Your UAT environment variables
 ├── kustomize/overlays/uat/azure-file-secret.yaml  # Azure storage credentials
 ├── kustomize/creds/uat/                # UAT credentials (optional reference)
-└── uat_access.yaml                     # Your UAT kubeconfig
+└── az-aks-oim03.yaml                     # Your UAT kubeconfig
 ```
 
 ### Key Configuration Files
@@ -387,7 +391,7 @@ Gitignored (create locally):
 -   Disables TLS (external proxy handles it)
 -   Sets `tls: []` and `ssl-redirect: false`
 
-**uat_access.yaml**
+**az-aks-oim03.yaml**
 
 -   Contains kubeconfig for az-aks-oim03 cluster
 -   Includes authentication token

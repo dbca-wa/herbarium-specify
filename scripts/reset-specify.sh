@@ -11,7 +11,7 @@
 # Environments:
 #   dev   - Local k3d cluster
 #   uat   - UAT on AKS (az-aks-oim03)
-#   prod  - Production on AKS (az-aks-prod01)
+#   prod  - Production on AKS (aks-bcs-prod-01)
 #
 # Options:
 #   --nuke    (dev only) Delete and recreate the entire k3d cluster
@@ -72,8 +72,8 @@ done
 # --- Environment config ---
 case "$ENV" in
     dev)
-        CONTEXT="k3d-specify-test"
-        CLUSTER_NAME="specify-test"
+        CONTEXT="specify-dev"
+        CLUSTER_NAME="specify-dev"
         OVERLAY="kustomize/overlays/dev"
         ;;
     uat)
@@ -81,7 +81,7 @@ case "$ENV" in
         OVERLAY="kustomize/overlays/uat"
         ;;
     prod)
-        CONTEXT="az-aks-prod01"
+        CONTEXT="aks-bcs-prod-01"
         OVERLAY="kustomize/overlays/prod"
         ;;
 esac
@@ -150,7 +150,9 @@ if [ "$ENV" = "dev" ]; then
         KUBECONFIG=~/.kube/config:$(k3d kubeconfig write $CLUSTER_NAME 2>/dev/null) \
             kubectl config view --flatten > ~/.kube/config.new 2>/dev/null
         mv ~/.kube/config.new ~/.kube/config
-        kubectl config use-context "k3d-${CLUSTER_NAME}" > /dev/null 2>&1
+        # Rename the k3d-prefixed context to just the cluster name
+        kubectl config rename-context "k3d-${CLUSTER_NAME}" "$CLUSTER_NAME" > /dev/null 2>&1 || true
+        kubectl config use-context "$CLUSTER_NAME" > /dev/null 2>&1
 
         echo_step "Creating namespace..."
         kubectl create namespace $NAMESPACE > /dev/null 2>&1
@@ -213,8 +215,8 @@ fi
 
 # Ensure kubeconfig is merged
 ACCESS_FILE=""
-[ "$ENV" = "uat" ] && ACCESS_FILE="uat_access.yaml"
-[ "$ENV" = "prod" ] && ACCESS_FILE="az-aks-prod01.yaml"
+[ "$ENV" = "uat" ] && ACCESS_FILE="az-aks-oim03.yaml"
+[ "$ENV" = "prod" ] && ACCESS_FILE="aks-bcs-prod-01.yaml"
 
 if [ -n "$ACCESS_FILE" ] && [ -f "$ACCESS_FILE" ]; then
     KUBECONFIG="$ACCESS_FILE":~/.kube/config kubectl config view --flatten > ~/.kube/config.new 2>/dev/null

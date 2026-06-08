@@ -37,7 +37,7 @@ It is advised you get things running locally first to get an understanding of Ku
 
 ```bash
 # Switch to dev context
-kubectl config use-context k3d-specify-test
+kubectl config use-context specify-dev
 
 # Deploy to dev
 kubectl apply -k kustomize/overlays/dev

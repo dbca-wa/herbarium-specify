@@ -9,7 +9,7 @@ Quick reference for managing Specify 7 deployments across environments.
 kubectl config get-contexts
 
 # Switch to dev environment (k3d local cluster)
-kubectl config use-context k3d-specify-test
+kubectl config use-context specify-dev
 
 # Switch to UAT environment (Rancher AKS)
 kubectl config use-context az-aks-oim03
@@ -306,7 +306,7 @@ kubectl get pvc -n herbarium-specify
 ## Environment-Specific Notes
 
 ### Dev (k3d)
-- Context: `k3d-specify-test`
+- Context: `specify-dev`
 - Access: Port-forward to localhost:8000
 - Database: MariaDB in-cluster
 

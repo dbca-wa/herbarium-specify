@@ -1,7 +1,9 @@
 # Environment files (contain secrets)
 uat_access.yaml
+az-aks-oim03.yaml
 prod_access.yaml
 az-aks-prod01.yaml
+aks-bcs-prod-01.yaml
 .github
 *.env
 *.sql

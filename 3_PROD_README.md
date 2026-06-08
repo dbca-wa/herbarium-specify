@@ -8,7 +8,7 @@ This guide covers deploying Specify 7 to the production environment on Azure AKS
 
 | Aspect | UAT | Production |
 |--------|-----|------------|
-| **Cluster** | az-aks-oim03 | az-aks-prod01 |
+| **Cluster** | az-aks-oim03 | aks-bcs-prod-01 |
 | **Domain** | specify-test.dbca.wa.gov.au | specify.dbca.wa.gov.au |
 | **Database** | specify_test | specify_prod |
 | **Specify replicas** | 1 | 2 |
@@ -28,20 +28,20 @@ Same as UAT — disconnect VPN before kubectl commands, never configure TLS in i
 
 ### 1. Load Production Credentials
 
-Download the kubeconfig from the Rancher production dashboard (top bar, select az-aks-prod01 cluster). Save as `az-aks-prod01.yaml` in the repo root (gitignored).
+Download the kubeconfig from the Rancher production dashboard (top bar, select aks-bcs-prod-01 cluster). Save as `aks-bcs-prod-01.yaml` in the repo root (gitignored).
 
 Merge into your kubeconfig:
 
 ```bash
 cp ~/.kube/config ~/.kube/config.backup
-KUBECONFIG=~/.kube/config:az-aks-prod01.yaml kubectl config view --flatten > ~/.kube/config.new
+KUBECONFIG=~/.kube/config:aks-bcs-prod-01.yaml kubectl config view --flatten > ~/.kube/config.new
 mv ~/.kube/config.new ~/.kube/config
 ```
 
 Or bypass the merge entirely:
 
 ```bash
-KUBECONFIG=az-aks-prod01.yaml kubectl get pods -n herbarium-specify
+KUBECONFIG=aks-bcs-prod-01.yaml kubectl get pods -n herbarium-specify
 ```
 
 See the kubeconfig merge conflict troubleshooting in [2_UAT_README.md](2_UAT_README.md) if you hit auth issues.
@@ -49,7 +49,7 @@ See the kubeconfig merge conflict troubleshooting in [2_UAT_README.md](2_UAT_REA
 ### 2. Switch to Production Context
 
 ```bash
-kubectl config use-context az-aks-prod01
+kubectl config use-context aks-bcs-prod-01
 kubectl get pods -n herbarium-specify
 ```
 
@@ -97,7 +97,7 @@ Backups are saved to the Azure File Share and can be downloaded via Azure Storag
 
 ```bash
 # Verify context
-kubectl config current-context  # Should show: az-aks-prod01
+kubectl config current-context  # Should show: aks-bcs-prod-01
 
 # Verify namespace exists (already provisioned by cluster admin)
 kubectl get namespace herbarium-specify
@@ -208,7 +208,7 @@ User (HTTPS) → External Proxy (SSL) → Ingress (HTTP) → Nginx → Specify (
 
 ```bash
 # Switch context
-kubectl config use-context az-aks-prod01
+kubectl config use-context aks-bcs-prod-01
 
 # Deploy
 kubectl apply -k kustomize/overlays/prod
