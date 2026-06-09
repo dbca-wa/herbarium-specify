@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: herbarium-specify
+  annotations:
+    # Rancher project assignment — ensures namespace belongs to
+    # "Biodiversity Conservation Science" project
+    field.cattle.io/projectId: "c-5wvdq:p-fp7j6"

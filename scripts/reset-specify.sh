@@ -126,6 +126,15 @@ wait_for_pods() {
 # =============================================================================
 if [ "$ENV" = "dev" ]; then
 
+    # Safety check: verify we're not accidentally targeting a remote cluster
+    CURRENT_CTX=$(kubectl config current-context 2>/dev/null || echo "")
+    if [[ "$CURRENT_CTX" == "az-aks-oim03" || "$CURRENT_CTX" == "aks-bcs-prod-01" ]]; then
+        echo_error "Safety check failed: kubectl context is '$CURRENT_CTX' (a remote cluster)"
+        echo_error "You're trying to run dev commands but your context points at UAT/prod."
+        echo_error "This would delete the remote namespace. Aborting."
+        exit 1
+    fi
+
     if [ "$NUKE" = true ]; then
         # Full cluster nuke and recreate
         echo_step "Deleting namespace..."
@@ -228,13 +237,30 @@ kubectl config use-context "$CONTEXT" > /dev/null 2>&1 || {
     echo_error "Failed to switch to context $CONTEXT"
     exit 1
 }
+
+# Verify context matches expected environment
+ACTIVE_CTX=$(kubectl config current-context 2>/dev/null || echo "")
+if [ "$ACTIVE_CTX" != "$CONTEXT" ]; then
+    echo_error "Context mismatch: expected '$CONTEXT' but got '$ACTIVE_CTX'. Aborting."
+    exit 1
+fi
 echo_info "Context: $CONTEXT"
 
-# Verify access
-kubectl get namespace "$NAMESPACE" > /dev/null 2>&1 || {
-    echo_error "Cannot access namespace $NAMESPACE"
-    exit 1
-}
+# Verify access — if namespace doesn't exist or we can't access it, try to create it
+if ! kubectl get namespace "$NAMESPACE" > /dev/null 2>&1; then
+    echo_warn "Namespace $NAMESPACE not accessible — attempting to create..."
+    NS_MANIFEST="kustomize/overlays/${ENV}/namespace.yaml"
+    if [ -f "$NS_MANIFEST" ]; then
+        kubectl apply -f "$NS_MANIFEST" > /dev/null 2>&1 || {
+            echo_error "Cannot create namespace. Ask your Rancher admin to create it under the correct project."
+            exit 1
+        }
+        echo_info "Namespace created with project annotation"
+    else
+        echo_error "Namespace $NAMESPACE not found and no namespace.yaml manifest exists"
+        exit 1
+    fi
+fi
 
 echo -e "${RED}This will tear down and redeploy all pods in $ENV. Database is NOT affected.${NC}"
 read -p "Type 'yes' to continue: " CONFIRM

@@ -168,6 +168,13 @@ kubectl config use-context "$CONTEXT" > /dev/null 2>&1 || {
     [ "$ENV" = "dev" ] && echo "Is your k3d cluster running? Try: k3d cluster start specify-dev"
     exit 1
 }
+
+# Verify the context actually matches what we expect
+ACTIVE_CTX=$(kubectl config current-context 2>/dev/null || echo "")
+if [ "$ACTIVE_CTX" != "$CONTEXT" ]; then
+    echo_error "Context mismatch: expected '$CONTEXT' but got '$ACTIVE_CTX'. Aborting."
+    exit 1
+fi
 echo_info "Context: $CONTEXT"
 
 # --- Verify namespace ---
@@ -200,6 +207,14 @@ drop_all_tables_local() {
 # DEV (local k3d with in-cluster MariaDB)
 # =============================================================================
 if [ "$DB_TYPE" = "local" ]; then
+
+    # Safety check: verify we're not accidentally targeting a remote cluster
+    CURRENT_CTX=$(kubectl config current-context 2>/dev/null || echo "")
+    if [[ "$CURRENT_CTX" == "az-aks-oim03" || "$CURRENT_CTX" == "aks-bcs-prod-01" ]]; then
+        echo_error "Safety check failed: kubectl context is '$CURRENT_CTX' (a remote cluster)"
+        echo_error "You're trying to run dev commands but your context points at UAT/prod. Aborting."
+        exit 1
+    fi
 
     # Get MariaDB pod
     MARIADB_POD=$(kubectl get pods -n "$NAMESPACE" -l app=specify,component=database \
