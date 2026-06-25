@@ -11,6 +11,15 @@ spec:
         name: wait-for-mariadb
       containers:
       - name: specify
+        env:
+        # Use the UAT SSO overlay settings module (layers on top of "settings").
+        - name: DJANGO_SETTINGS_MODULE
+          value: "uat_sso_settings"
+        volumeMounts:
+        - name: sso-settings
+          mountPath: /opt/specify7/uat_sso_settings.py
+          subPath: uat_sso_settings.py
+          readOnly: true
         resources:
           requests:
             memory: "512Mi"
@@ -18,3 +27,7 @@ spec:
           limits:
             memory: "3Gi"
             cpu: "1000m"
+      volumes:
+      - name: sso-settings
+        configMap:
+          name: sso-settings
