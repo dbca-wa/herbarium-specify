@@ -245,7 +245,7 @@ if [ "$DB_TYPE" = "local" ]; then
     if [ "$MODE" = "save_vanilla" ]; then
         echo_step "Saving current database state as vanilla.sql..."
         kubectl exec -n "$NAMESPACE" "$MARIADB_POD" -- \
-            mysqldump -u "$DB_USER" -p"$DB_PASS" --single-transaction "$DB_NAME" > "$VANILLA_PATH" 2>/dev/null || {
+            mysqldump -u "$DB_USER" -p"$DB_PASS" --single-transaction --no-tablespaces "$DB_NAME" > "$VANILLA_PATH" 2>/dev/null || {
             echo_error "Failed to dump database"; exit 1
         }
         echo_info "Saved: $VANILLA_PATH ($(du -h "$VANILLA_PATH" | cut -f1))"
@@ -259,7 +259,7 @@ if [ "$DB_TYPE" = "local" ]; then
         BACKUP_FILE="/tmp/specify_${DB_NAME}_backup_${FILE_TIMESTAMP}.sql"
         echo_step "Creating backup..."
         kubectl exec -n "$NAMESPACE" "$MARIADB_POD" -- \
-            mysqldump -u "$DB_USER" -p"$DB_PASS" --single-transaction "$DB_NAME" > "$BACKUP_FILE" 2>/dev/null || {
+            mysqldump -u "$DB_USER" -p"$DB_PASS" --single-transaction --no-tablespaces "$DB_NAME" > "$BACKUP_FILE" 2>/dev/null || {
             echo_error "Backup failed"; exit 1
         }
         echo_info "Backup saved: $BACKUP_FILE ($(du -h "$BACKUP_FILE" | cut -f1))"
@@ -461,7 +461,7 @@ fi
 if [ "$MODE" = "save_vanilla" ]; then
     echo_step "Saving current DB as vanilla.sql on file share..."
     POD="save-vanilla-${TIMESTAMP}"
-    run_share_pod "$POD" "mysqldump --host=$DB_HOST --port=$DB_PORT --user=\$(cat /secrets/MASTER_NAME) --single-transaction --quick $DB_NAME > /share/$VANILLA_FILENAME && echo DONE && ls -lh /share/$VANILLA_FILENAME"
+    run_share_pod "$POD" "mysqldump --host=$DB_HOST --port=$DB_PORT --user=\$(cat /secrets/MASTER_NAME) --single-transaction --quick --no-tablespaces $DB_NAME > /share/$VANILLA_FILENAME && echo DONE && ls -lh /share/$VANILLA_FILENAME"
     wait_for_pod "$POD" 60 || { echo_error "Failed"; kubectl logs "$POD" -n "$NAMESPACE" 2>/dev/null; cleanup_pod "$POD"; exit 1; }
     kubectl logs "$POD" -n "$NAMESPACE" 2>/dev/null | tail -1
     cleanup_pod "$POD"
@@ -476,7 +476,7 @@ if [ "$MODE" = "save" ]; then
     BACKUP_FILE="specify_${DB_NAME}_backup_${FILE_TIMESTAMP}.sql"
     echo_step "Creating backup: $BACKUP_FILE"
     POD="backup-${TIMESTAMP}"
-    run_share_pod "$POD" "mysqldump --host=$DB_HOST --port=$DB_PORT --user=\$(cat /secrets/MASTER_NAME) --single-transaction --quick $DB_NAME > /share/$BACKUP_FILE && echo DONE && ls -lh /share/$BACKUP_FILE"
+    run_share_pod "$POD" "mysqldump --host=$DB_HOST --port=$DB_PORT --user=\$(cat /secrets/MASTER_NAME) --single-transaction --quick --no-tablespaces $DB_NAME > /share/$BACKUP_FILE && echo DONE && ls -lh /share/$BACKUP_FILE"
     wait_for_pod "$POD" 60 || { echo_error "Backup failed"; kubectl logs "$POD" -n "$NAMESPACE" 2>/dev/null; cleanup_pod "$POD"; exit 1; }
     kubectl logs "$POD" -n "$NAMESPACE" 2>/dev/null | tail -1
     cleanup_pod "$POD"
