@@ -36,7 +36,7 @@ spec:
                       ]
             containers:
                 - name: specify-worker
-                  image: specifyconsortium/specify7-service:v7.12.0.6
+                  image: specifyconsortium/specify7-service:v7.12.1.2
                   command:
                       [
                           "ve/bin/celery",
