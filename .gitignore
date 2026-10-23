@@ -11,8 +11,9 @@ docs/
 kustomize/creds
 *-secret.yaml
 
-# IDE and editor files
+# IDE and editor files (and repos)
 .vscode/
+specify7/
 .idea/
 *.swp
 *.swo
