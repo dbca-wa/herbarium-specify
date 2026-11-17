@@ -144,7 +144,7 @@ kubectl logs -n herbarium-specify deployment/specify -f  # Follow
 To monitor the running Workbench loads, we must follow the instructions in the support article [Cancelling a Stuck Workbench Task](https://speciforum.org/t/canceling-a-stuck-workbench-task/4447) to find the active task in Celery. In the context of our `kubectl` configuration, it is:
 
 ```bash
-kubectl exec -n herbarium-specify deployments/specify-worker -- celery -A specifyweb inspect active
+kubectl exec -n herbarium-specify deployment/specify-worker -- celery -A specifyweb inspect active
 ```
 
 ### Restart Deployments
