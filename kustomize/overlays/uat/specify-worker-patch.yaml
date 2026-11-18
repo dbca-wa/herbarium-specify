@@ -14,6 +14,15 @@ spec:
         # Use the UAT SSO overlay settings module (layers on top of "settings").
         - name: DJANGO_SETTINGS_MODULE
           value: "uat_sso_settings"
+        # WorkBench uploads are CPU-bound in the worker once the database is
+        # indexed; match the production limits.
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "3Gi"
+            cpu: "1000m"
         volumeMounts:
         - name: sso-settings
           mountPath: /opt/specify7/uat_sso_settings.py
