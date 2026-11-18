@@ -67,8 +67,15 @@ show_usage() {
     echo "  --save            Create a timestamped backup"
     echo "  --load <file>     Load a specific .sql file"
     echo "  --load            List available .sql files"
-    echo "  --load_last       Load most recent backup (UAT/prod only)"
+    echo "  --load_last       Load most recent complete backup (UAT/prod only)"
+    echo "  --check_schema    Report missing indexes, unique constraints and foreign keys (read-only)"
+    echo "  --repair_schema   Create missing indexes, unique constraints and foreign keys"
+    echo "                    (requires specify-worker scaled to 0 so no upload is running)"
     echo "  --help            Show this message"
+    echo ""
+    echo "Options:"
+    echo "  --site_indexes    With --check_schema/--repair_schema, also include the"
+    echo "                    site-specific WorkBench indexes"
     echo ""
     exit "${1:-1}"
 }
@@ -77,6 +84,7 @@ show_usage() {
 ENV=""
 MODE=""
 RESTORE_FILE=""
+SITE_INDEXES="0"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -86,6 +94,9 @@ while [[ $# -gt 0 ]]; do
         --load_vanilla) MODE="load_vanilla"; shift ;;
         --save) MODE="save"; shift ;;
         --load_last) MODE="load_last"; shift ;;
+        --check_schema) MODE="check_schema"; shift ;;
+        --repair_schema) MODE="repair_schema"; shift ;;
+        --site_indexes) SITE_INDEXES="1"; shift ;;
         --load)
             MODE="load"
             if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
@@ -178,10 +189,89 @@ fi
 echo_info "Context: $CONTEXT"
 
 # --- Verify namespace ---
-kubectl get namespace "$NAMESPACE" > /dev/null 2>&1 || {
-    echo_error "Namespace $NAMESPACE not found"
+# Uses a namespaced call: Rancher project members usually cannot read namespaces
+# at cluster scope.
+kubectl get deployment specify -n "$NAMESPACE" > /dev/null 2>&1 || {
+    echo_error "Deployment 'specify' not found in namespace $NAMESPACE (or no access)"
     exit 1
 }
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCHEMA_TOOL="$SCRIPT_DIR/specify_schema_repair.py"
+
+# =============================================================================
+# Helpers: schema check / repair (shared by all environments)
+# =============================================================================
+# Runs scripts/specify_schema_repair.py inside the specify container.
+# Usage: run_schema_tool <check|repair>
+run_schema_tool() {
+    local status=0 output
+    output=$(kubectl exec -i -n "$NAMESPACE" deployment/specify -c specify -- \
+        env SCHEMA_MODE="$1" SITE_INDEXES="$SITE_INDEXES" ve/bin/python manage.py shell \
+        < "$SCHEMA_TOOL" 2>&1) || status=$?
+    echo "$output" | grep -v -E "WARNING|staticfiles|System check" || true
+    return $status
+}
+
+# Warns when the database is missing the indexes and constraints Specify declares.
+# Specify 7.12.x cannot run its first migration on MySQL 8 and leaves the schema
+# without them (https://github.com/specify/specify7/pull/8813).
+verify_schema() {
+    echo_step "Checking database schema..."
+    local report summary
+    report=$(run_schema_tool check) || true
+    summary=$(echo "$report" | grep "^SCHEMA" | tail -1) || true
+    if [ -z "$summary" ]; then
+        echo_warn "Schema check could not run. Run '$0 $ENV --check_schema' once Specify is up."
+        return 0
+    fi
+    if echo "$summary" | grep -q "missing=0 "; then
+        echo_info "Schema complete"
+        return 0
+    fi
+    if echo "$summary" | grep -q "SCHEMA empty"; then
+        echo_info "No Specify tables yet (schema check skipped)"
+        return 0
+    fi
+    echo_warn "$summary"
+    echo_warn "The database is missing indexes/constraints, which makes WorkBench uploads very slow."
+    echo_warn "Fix with: kubectl scale deployment/specify-worker -n $NAMESPACE --replicas=0"
+    echo_warn "          $0 $ENV --repair_schema"
+    return 1
+}
+
+if [ "$MODE" = "check_schema" ]; then
+    echo_step "Checking schema (read-only)..."
+    STATUS=0
+    run_schema_tool check || STATUS=$?
+    exit $STATUS
+fi
+
+if [ "$MODE" = "repair_schema" ]; then
+    WORKERS=$(kubectl get deployment specify-worker -n "$NAMESPACE" -o jsonpath='{.spec.replicas}' 2>/dev/null)
+    RUNNING=$(kubectl get pods -n "$NAMESPACE" -l app=specify,component=worker --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    if [ "${WORKERS:-1}" != "0" ] || [ "${RUNNING:-1}" != "0" ]; then
+        echo_error "specify-worker is running (replicas=${WORKERS:-?}, pods=${RUNNING:-?})."
+        echo "  Schema changes wait on, and block, any WorkBench upload in progress."
+        echo "  Make sure no upload is running, then:"
+        echo "    kubectl scale deployment/specify-worker -n $NAMESPACE --replicas=0"
+        echo "  and re-run this command. Scale it back to 1 afterwards."
+        exit 1
+    fi
+    echo_step "Planned changes:"
+    run_schema_tool check || true
+    echo ""
+    echo -e "${RED}This will add the missing indexes/constraints to the $ENV database.${NC}"
+    echo -e "${RED}Take a verified backup first ($0 $ENV --save).${NC}"
+    read -p "Type 'yes' to continue: " CONFIRM
+    [ "$CONFIRM" != "yes" ] && { echo_error "Cancelled"; exit 0; }
+    STATUS=0
+    run_schema_tool repair || STATUS=$?
+    [ $STATUS -eq 0 ] && echo_info "Schema repaired" || echo_warn "Repair finished with failures (see FAILED lines above)"
+    echo "Scale the worker back up when ready:"
+    echo "  kubectl scale deployment/specify-worker -n $NAMESPACE --replicas=1"
+    exit $STATUS
+fi
 
 # =============================================================================
 # Helper: drop all tables in database (works without DROP DATABASE privilege)
@@ -191,6 +281,7 @@ drop_all_tables_local() {
     kubectl exec -n "$NAMESPACE" "$pod" -- \
         mysql -u "$user" -p"$pass" "$db" -e "
             SET FOREIGN_KEY_CHECKS = 0;
+            SET SESSION group_concat_max_len = 1000000;
             SET @tables = NULL;
             SELECT GROUP_CONCAT('\`', table_name, '\`') INTO @tables
               FROM information_schema.tables
@@ -200,7 +291,14 @@ drop_all_tables_local() {
             EXECUTE stmt;
             DEALLOCATE PREPARE stmt;
             SET FOREIGN_KEY_CHECKS = 1;
-        " 2>/dev/null
+        " 2>/dev/null || { echo_error "Failed to drop tables"; exit 1; }
+}
+
+# A complete mysqldump file ends with this footer; truncated dumps do not.
+DUMP_FOOTER="-- Dump completed"
+
+dump_is_complete() {
+    tail -c 200 "$1" 2>/dev/null | grep -q -- "$DUMP_FOOTER"
 }
 
 # =============================================================================
@@ -245,9 +343,13 @@ if [ "$DB_TYPE" = "local" ]; then
     if [ "$MODE" = "save_vanilla" ]; then
         echo_step "Saving current database state as vanilla.sql..."
         kubectl exec -n "$NAMESPACE" "$MARIADB_POD" -- \
-            mysqldump -u "$DB_USER" -p"$DB_PASS" --single-transaction --no-tablespaces "$DB_NAME" > "$VANILLA_PATH" 2>/dev/null || {
-            echo_error "Failed to dump database"; exit 1
+            mysqldump -u "$DB_USER" -p"$DB_PASS" --single-transaction --no-tablespaces "$DB_NAME" > "$VANILLA_PATH.partial" 2>/dev/null || {
+            echo_error "Failed to dump database"; rm -f "$VANILLA_PATH.partial"; exit 1
         }
+        dump_is_complete "$VANILLA_PATH.partial" || {
+            echo_error "Dump is incomplete (no '$DUMP_FOOTER' footer); left at $VANILLA_PATH.partial"; exit 1
+        }
+        mv "$VANILLA_PATH.partial" "$VANILLA_PATH"
         echo_info "Saved: $VANILLA_PATH ($(du -h "$VANILLA_PATH" | cut -f1))"
         echo -e "${GREEN}Running with --load_vanilla will now restore to this state.${NC}"
         echo ""
@@ -260,7 +362,10 @@ if [ "$DB_TYPE" = "local" ]; then
         echo_step "Creating backup..."
         kubectl exec -n "$NAMESPACE" "$MARIADB_POD" -- \
             mysqldump -u "$DB_USER" -p"$DB_PASS" --single-transaction --no-tablespaces "$DB_NAME" > "$BACKUP_FILE" 2>/dev/null || {
-            echo_error "Backup failed"; exit 1
+            echo_error "Backup failed"; rm -f "$BACKUP_FILE"; exit 1
+        }
+        dump_is_complete "$BACKUP_FILE" || {
+            echo_error "Backup is incomplete (no '$DUMP_FOOTER' footer): $BACKUP_FILE"; exit 1
         }
         echo_info "Backup saved: $BACKUP_FILE ($(du -h "$BACKUP_FILE" | cut -f1))"
         echo ""
@@ -274,6 +379,9 @@ if [ "$DB_TYPE" = "local" ]; then
             echo "Create it first: $0 dev --nuke, complete Guided Setup, then $0 dev --save_vanilla"
             exit 1
         fi
+        dump_is_complete "$RESTORE_FILE" || {
+            echo_error "$RESTORE_FILE is incomplete (no '$DUMP_FOOTER' footer); refusing to load it"; exit 1
+        }
         echo -e "${RED}This will wipe all tables and load vanilla.sql ($( du -h "$RESTORE_FILE" | cut -f1))${NC}"
         read -p "Type 'yes' to continue: " CONFIRM
         [ "$CONFIRM" != "yes" ] && { echo_error "Cancelled"; exit 0; }
@@ -284,7 +392,9 @@ if [ "$DB_TYPE" = "local" ]; then
 
         echo_step "Loading vanilla.sql..."
         kubectl exec -i -n "$NAMESPACE" "$MARIADB_POD" -- \
-            mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$RESTORE_FILE" 2>/dev/null
+            mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$RESTORE_FILE" 2>/dev/null || {
+            echo_error "Load failed; the database is incomplete"; exit 1
+        }
         echo_info "Database loaded"
 
         echo_step "Restarting Specify..."
@@ -305,6 +415,9 @@ if [ "$DB_TYPE" = "local" ]; then
             find . -name "*.sql" -not -path "./.git/*" -exec ls -lh {} \; 2>/dev/null | awk '{print "  " $NF " (" $5 ")"}'
             exit 1
         fi
+        dump_is_complete "$RESTORE_FILE" || {
+            echo_error "$RESTORE_FILE is incomplete (no '$DUMP_FOOTER' footer); refusing to load it"; exit 1
+        }
         echo -e "${RED}This will wipe all tables and load: $(basename "$RESTORE_FILE") ($(du -h "$RESTORE_FILE" | cut -f1))${NC}"
         read -p "Type 'yes' to continue: " CONFIRM
         [ "$CONFIRM" != "yes" ] && { echo_error "Cancelled"; exit 0; }
@@ -315,7 +428,9 @@ if [ "$DB_TYPE" = "local" ]; then
 
         echo_step "Loading: $(basename "$RESTORE_FILE")..."
         kubectl exec -i -n "$NAMESPACE" "$MARIADB_POD" -- \
-            mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$RESTORE_FILE" 2>/dev/null
+            mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$RESTORE_FILE" 2>/dev/null || {
+            echo_error "Load failed; the database is incomplete"; exit 1
+        }
         echo_info "Database loaded"
 
         echo_step "Restarting Specify..."
@@ -341,8 +456,18 @@ if [ "$DB_TYPE" = "local" ]; then
         echo_info "All tables dropped"
 
         echo_step "Running Django migrations (creating all tables from scratch)..."
-        kubectl exec -n "$NAMESPACE" deployment/specify -- \
-            ve/bin/python manage.py migrate --database=master 2>&1 | grep -E "Applying|OK$|Operations|Running" || true
+        MIGRATE_LOG="/tmp/specify-migrate-${TIMESTAMP}.log"
+        MIGRATE_STATUS=0
+        kubectl exec -n "$NAMESPACE" deployment/specify -c specify -- \
+            ve/bin/python manage.py migrate --database=master > "$MIGRATE_LOG" 2>&1 || MIGRATE_STATUS=$?
+        grep -E "Applying|Operations|Running" "$MIGRATE_LOG" | tail -5 || true
+        if [ $MIGRATE_STATUS -ne 0 ]; then
+            echo_error "Migrations failed (exit $MIGRATE_STATUS). Full log: $MIGRATE_LOG"
+            grep -E "Error|error" "$MIGRATE_LOG" | grep -v WARNING | tail -3 || true
+            exit 1
+        fi
+        echo_info "Migrations complete"
+        verify_schema || true
 
         # No restart needed — migrations ran in the existing pod.
         sleep 3
@@ -428,19 +553,80 @@ run_share_pod() {
         }" > /dev/null 2>&1
 }
 
+# Waits for a task pod to finish. Returns 0 if it succeeded, 1 if it failed and
+# 2 if it is still running after <timeout_seconds>.
 wait_for_pod() {
-    local name="$1" timeout="${2:-60}"
-    for i in $(seq 1 $timeout); do
+    local name="$1" timeout="${2:-60}" waited=0
+    while [ $waited -lt "$timeout" ]; do
         STATUS=$(kubectl get pod "$name" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Pending")
         [ "$STATUS" = "Succeeded" ] && return 0
         [ "$STATUS" = "Failed" ] && return 1
-        sleep 3
+        sleep 5
+        waited=$((waited + 5))
+        [ $((waited % 60)) -eq 0 ] && echo "  ... still running ($((waited / 60)) min)"
     done
-    return 1
+    return 2
 }
 
 cleanup_pod() {
     kubectl delete pod "$1" -n "$NAMESPACE" --ignore-not-found > /dev/null 2>&1
+}
+
+# Waits for a long-running dump/restore pod. A pod that is still running is never
+# deleted: deleting it would leave a truncated dump or a half-loaded database.
+wait_for_task_pod() {
+    local name="$1" timeout="$2" what="$3" rc=0
+    wait_for_pod "$name" "$timeout" || rc=$?
+    if [ $rc -eq 2 ]; then
+        echo_error "$what is still running after $((timeout / 60)) minutes. The pod has been left running."
+        echo "  Follow it with:  kubectl logs -f $name -n $NAMESPACE"
+        echo "  Remove it after it finishes:  kubectl delete pod $name -n $NAMESPACE"
+        exit 1
+    fi
+    if [ $rc -ne 0 ]; then
+        echo_error "$what failed:"
+        kubectl logs "$name" -n "$NAMESPACE" 2>/dev/null | tail -5
+        cleanup_pod "$name"
+        exit 1
+    fi
+}
+
+# Drops every table through the specify container (Azure MySQL does not allow
+# DROP DATABASE) and checks that nothing is left.
+drop_all_tables_azure() {
+    echo_step "Dropping all tables..."
+    local output summary
+    output=$(kubectl exec -n "$NAMESPACE" deployment/specify -c specify -- python -c "
+import django, os
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'specifyweb.settings')
+django.setup()
+from django.db import connections
+cursor = connections['master'].cursor()
+cursor.execute('SET FOREIGN_KEY_CHECKS = 0')
+cursor.execute('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()')
+tables = [r[0] for r in cursor.fetchall()]
+if tables:
+    cursor.execute('DROP TABLE ' + ', '.join(f'\`{t}\`' for t in tables))
+cursor.execute('SET FOREIGN_KEY_CHECKS = 1')
+cursor.execute('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()')
+print(f'DROPPED {len(tables)} REMAINING {cursor.fetchone()[0]}')
+" 2>&1) || true
+    summary=$(echo "$output" | grep "^DROPPED" | tail -1) || true
+    if [ -z "$summary" ] || ! echo "$summary" | grep -q "REMAINING 0$"; then
+        echo_error "Dropping tables failed:"
+        echo "$output" | grep -v WARNING | tail -5
+        exit 1
+    fi
+    echo_info "Tables dropped ($(echo "$summary" | awk '{print $2}'))"
+}
+
+# Long-running task timeouts (seconds)
+DUMP_TIMEOUT=7200
+RESTORE_TIMEOUT=7200
+
+# Shell snippet (run in a share pod) that succeeds only if the dump has the footer.
+footer_check() {
+    echo "tail -c 200 /share/$1 | grep -q 'Dump completed'"
 }
 
 # --- LIST FILES ---
@@ -448,7 +634,7 @@ if [ "$MODE" = "list_files" ]; then
     echo_step "Listing .sql files on file share ($SHARE_NAME)..."
     POD="list-${TIMESTAMP}"
     run_share_pod "$POD" "ls -lh /share/*.sql 2>/dev/null || echo '  (none found)'" "false"
-    wait_for_pod "$POD" 20
+    wait_for_pod "$POD" 120 || true
     echo ""
     kubectl logs "$POD" -n "$NAMESPACE" 2>/dev/null
     cleanup_pod "$POD"
@@ -461,11 +647,12 @@ fi
 if [ "$MODE" = "save_vanilla" ]; then
     echo_step "Saving current DB as vanilla.sql on file share..."
     POD="save-vanilla-${TIMESTAMP}"
-    run_share_pod "$POD" "mysqldump --host=$DB_HOST --port=$DB_PORT --user=\$(cat /secrets/MASTER_NAME) --single-transaction --quick --no-tablespaces $DB_NAME > /share/$VANILLA_FILENAME && echo DONE && ls -lh /share/$VANILLA_FILENAME"
-    wait_for_pod "$POD" 60 || { echo_error "Failed"; kubectl logs "$POD" -n "$NAMESPACE" 2>/dev/null; cleanup_pod "$POD"; exit 1; }
+    PARTIAL="$VANILLA_FILENAME.partial"
+    run_share_pod "$POD" "mysqldump --host=$DB_HOST --port=$DB_PORT --user=\$(cat /secrets/MASTER_NAME) --single-transaction --quick --no-tablespaces $DB_NAME > /share/$PARTIAL && $(footer_check "$PARTIAL") && mv /share/$PARTIAL /share/$VANILLA_FILENAME && echo DONE && ls -lh /share/$VANILLA_FILENAME"
+    wait_for_task_pod "$POD" "$DUMP_TIMEOUT" "Dump"
     kubectl logs "$POD" -n "$NAMESPACE" 2>/dev/null | tail -1
     cleanup_pod "$POD"
-    echo_info "vanilla.sql saved to file share"
+    echo_info "vanilla.sql saved to file share (verified complete)"
     echo -e "${GREEN}Running with --load_vanilla will now restore to this state.${NC}"
     echo ""
     exit 0
@@ -476,11 +663,13 @@ if [ "$MODE" = "save" ]; then
     BACKUP_FILE="specify_${DB_NAME}_backup_${FILE_TIMESTAMP}.sql"
     echo_step "Creating backup: $BACKUP_FILE"
     POD="backup-${TIMESTAMP}"
-    run_share_pod "$POD" "mysqldump --host=$DB_HOST --port=$DB_PORT --user=\$(cat /secrets/MASTER_NAME) --single-transaction --quick --no-tablespaces $DB_NAME > /share/$BACKUP_FILE && echo DONE && ls -lh /share/$BACKUP_FILE"
-    wait_for_pod "$POD" 60 || { echo_error "Backup failed"; kubectl logs "$POD" -n "$NAMESPACE" 2>/dev/null; cleanup_pod "$POD"; exit 1; }
+    PARTIAL="$BACKUP_FILE.partial"
+    run_share_pod "$POD" "mysqldump --host=$DB_HOST --port=$DB_PORT --user=\$(cat /secrets/MASTER_NAME) --single-transaction --quick --no-tablespaces $DB_NAME > /share/$PARTIAL && $(footer_check "$PARTIAL") && mv /share/$PARTIAL /share/$BACKUP_FILE && echo DONE && ls -lh /share/$BACKUP_FILE"
+    echo "  Waiting for dump (large databases take several minutes)..."
+    wait_for_task_pod "$POD" "$DUMP_TIMEOUT" "Backup"
     kubectl logs "$POD" -n "$NAMESPACE" 2>/dev/null | tail -1
     cleanup_pod "$POD"
-    echo_info "Backup saved: $BACKUP_FILE (on $SHARE_NAME)"
+    echo_info "Backup saved: $BACKUP_FILE (on $SHARE_NAME, verified complete)"
     echo ""
     exit 0
 fi
@@ -493,12 +682,13 @@ fi
 if [ "$MODE" = "load_last" ]; then
     echo_step "Finding most recent backup..."
     POD="find-last-${TIMESTAMP}"
-    run_share_pod "$POD" "ls -t /share/specify_*.sql 2>/dev/null | head -1 | sed 's|/share/||'" "false"
-    wait_for_pod "$POD" 20
+    # Newest backup that has the mysqldump footer (truncated dumps are skipped)
+    run_share_pod "$POD" "for f in \$(ls -t /share/specify_*.sql 2>/dev/null); do tail -c 200 \$f | grep -q 'Dump completed' && { basename \$f; break; }; done" "false"
+    wait_for_pod "$POD" 120 || true
     RESTORE_FILE=$(kubectl logs "$POD" -n "$NAMESPACE" 2>/dev/null | tr -d '\n')
     cleanup_pod "$POD"
     if [ -z "$RESTORE_FILE" ]; then
-        echo_error "No backup files found on file share"
+        echo_error "No complete backup files found on file share"
         exit 1
     fi
     echo_info "Most recent: $RESTORE_FILE"
@@ -508,11 +698,15 @@ fi
 if [ "$MODE" = "load" ] || [ "$MODE" = "load_vanilla" ] || [ "$MODE" = "load_last" ]; then
     echo_step "Verifying file: $RESTORE_FILE"
     POD="verify-${TIMESTAMP}"
-    run_share_pod "$POD" "[ -f /share/$RESTORE_FILE ] && echo EXISTS || echo MISSING" "false"
-    wait_for_pod "$POD" 20
+    run_share_pod "$POD" "if [ ! -f /share/$RESTORE_FILE ]; then echo MISSING; elif $(footer_check "$RESTORE_FILE"); then echo EXISTS; else echo INCOMPLETE; fi" "false"
+    wait_for_pod "$POD" 120 || true
     RESULT=$(kubectl logs "$POD" -n "$NAMESPACE" 2>/dev/null | tr -d '\n')
     cleanup_pod "$POD"
 
+    if [ "$RESULT" = "INCOMPLETE" ]; then
+        echo_error "$RESTORE_FILE is truncated (no '$DUMP_FOOTER' footer); refusing to load it"
+        exit 1
+    fi
     if [ "$RESULT" != "EXISTS" ]; then
         echo_error "File not found on share: $RESTORE_FILE"
         if [ "$MODE" = "load_vanilla" ]; then
@@ -522,7 +716,7 @@ if [ "$MODE" = "load" ] || [ "$MODE" = "load_vanilla" ] || [ "$MODE" = "load_las
         echo "Available files:"
         POD="list-avail-${TIMESTAMP}"
         run_share_pod "$POD" "ls -lh /share/*.sql 2>/dev/null || echo '  (none)'" "false"
-        wait_for_pod "$POD" 20
+        wait_for_pod "$POD" 120 || true
         kubectl logs "$POD" -n "$NAMESPACE" 2>/dev/null
         cleanup_pod "$POD"
         exit 1
@@ -534,38 +728,23 @@ if [ "$MODE" = "load" ] || [ "$MODE" = "load_vanilla" ] || [ "$MODE" = "load_las
     read -p "Type 'yes' to continue: " CONFIRM
     [ "$CONFIRM" != "yes" ] && { echo_error "Cancelled"; exit 0; }
 
-    # Drop all tables via kubectl exec (reliable, no escaping issues)
-    echo_step "Dropping all tables..."
-    kubectl exec -n "$NAMESPACE" deployment/specify -- python -c "
-import django, os
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'specifyweb.settings')
-django.setup()
-from django.db import connections
-cursor = connections['master'].cursor()
-cursor.execute('SET FOREIGN_KEY_CHECKS = 0')
-cursor.execute('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()')
-tables = [r[0] for r in cursor.fetchall()]
-if tables:
-    cursor.execute('DROP TABLE ' + ', '.join(f'\`{t}\`' for t in tables))
-cursor.execute('SET FOREIGN_KEY_CHECKS = 1')
-print(f'Dropped {len(tables)} tables')
-" 2>/dev/null
-    echo_info "Tables dropped"
+    drop_all_tables_azure
 
     # Load file
     echo_step "Loading: $RESTORE_FILE"
     POD="restore-${TIMESTAMP}"
     run_share_pod "$POD" "mysql --host=$DB_HOST --port=$DB_PORT --user=\$(cat /secrets/MASTER_NAME) $DB_NAME < /share/$RESTORE_FILE && echo DONE" "false"
-    echo "  Waiting for restore..."
-    wait_for_pod "$POD" 120 || { echo_error "Restore failed"; kubectl logs "$POD" -n "$NAMESPACE" 2>/dev/null; cleanup_pod "$POD"; exit 1; }
+    echo "  Waiting for restore (large databases take several minutes)..."
+    wait_for_task_pod "$POD" "$RESTORE_TIMEOUT" "Restore"
     cleanup_pod "$POD"
     echo_info "Database loaded"
 
     # Restart
     echo_step "Restarting Specify..."
     kubectl rollout restart deployment/specify deployment/specify-worker -n "$NAMESPACE" > /dev/null 2>&1
-    kubectl rollout status deployment/specify -n "$NAMESPACE" --timeout=180s 2>/dev/null || true
+    kubectl rollout status deployment/specify -n "$NAMESPACE" --timeout=600s 2>/dev/null || true
     echo_info "Done"
+    verify_schema || true
     echo ""
     case "$ENV" in
         uat)  echo -e "Access: ${GREEN}https://specify-test.dbca.wa.gov.au/specify/${NC}" ;;
@@ -583,27 +762,30 @@ if [ "$MODE" = "nuke" ]; then
 
     NUKE_START=$(date +%s)
 
-    # Drop all tables via kubectl exec (reliable)
-    echo_step "Dropping all tables..."
-    kubectl exec -n "$NAMESPACE" deployment/specify -- python -c "
-import django, os
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'specifyweb.settings')
-django.setup()
-from django.db import connections
-cursor = connections['master'].cursor()
-cursor.execute('SET FOREIGN_KEY_CHECKS = 0')
-cursor.execute('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()')
-tables = [r[0] for r in cursor.fetchall()]
-if tables:
-    cursor.execute('DROP TABLE ' + ', '.join(f'\`{t}\`' for t in tables))
-cursor.execute('SET FOREIGN_KEY_CHECKS = 1')
-print(f'Dropped {len(tables)} tables')
-" 2>/dev/null
-    echo_info "All tables dropped"
+    drop_all_tables_azure
 
     echo_step "Running Django migrations (creating all tables from scratch)..."
-    kubectl exec -n "$NAMESPACE" deployment/specify -- \
-        ve/bin/python manage.py migrate --database=master 2>&1 | grep -E "Applying|OK$|Operations|Running" || true
+    MIGRATE_LOG="/tmp/specify-migrate-${ENV}-${TIMESTAMP}.log"
+    MIGRATE_STATUS=0
+    kubectl exec -n "$NAMESPACE" deployment/specify -c specify -- \
+        ve/bin/python manage.py migrate --database=master > "$MIGRATE_LOG" 2>&1 || MIGRATE_STATUS=$?
+    grep -E "Applying|Operations|Running" "$MIGRATE_LOG" | tail -5 || true
+    if [ $MIGRATE_STATUS -ne 0 ]; then
+        echo_error "Migrations failed (exit $MIGRATE_STATUS). Full log: $MIGRATE_LOG"
+        grep -E "Error|error" "$MIGRATE_LOG" | grep -v WARNING | tail -3 || true
+        if grep -q "1071" "$MIGRATE_LOG"; then
+            echo ""
+            echo_warn "This is the Specify 7.12 / MySQL 8 index-length bug (https://github.com/specify/specify7/pull/8813)."
+            echo_warn "Until the deployed image includes the fix, complete the setup with:"
+            echo "    1. kubectl rollout restart deployment/specify -n $NAMESPACE  (finishes the remaining migrations)"
+            echo "    2. kubectl scale deployment/specify-worker -n $NAMESPACE --replicas=0"
+            echo "    3. $0 $ENV --repair_schema  (adds the missing indexes and constraints)"
+            echo "    4. kubectl scale deployment/specify-worker -n $NAMESPACE --replicas=1"
+        fi
+        exit 1
+    fi
+    echo_info "Migrations complete"
+    verify_schema || true
 
     # Verify setup_tool works
     sleep 3
