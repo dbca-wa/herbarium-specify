@@ -267,7 +267,11 @@ if [ "$MODE" = "repair_schema" ]; then
     [ "$CONFIRM" != "yes" ] && { echo_error "Cancelled"; exit 0; }
     STATUS=0
     run_schema_tool repair || STATUS=$?
-    [ $STATUS -eq 0 ] && echo_info "Schema repaired" || echo_warn "Repair finished with failures (see FAILED lines above)"
+    case $STATUS in
+        0) echo_info "Schema repaired" ;;
+        1) echo_warn "Repair finished, but some constraints were skipped because of existing data (see FAILED lines)" ;;
+        *) echo_error "Repair stopped on a database error (see STOPPED line). Re-run it once the cause is fixed; it resumes." ;;
+    esac
     echo "Scale the worker back up when ready:"
     echo "  kubectl scale deployment/specify-worker -n $NAMESPACE --replicas=1"
     exit $STATUS
@@ -401,6 +405,7 @@ if [ "$DB_TYPE" = "local" ]; then
         kubectl rollout restart deployment/specify deployment/specify-worker -n "$NAMESPACE" > /dev/null 2>&1
         kubectl rollout status deployment/specify -n "$NAMESPACE" --timeout=120s 2>/dev/null || true
         echo_info "Done"
+        verify_schema || true
         echo ""
         echo -e "Access: ${GREEN}http://localhost:8000/specify/${NC}"
         exit 0
@@ -437,6 +442,7 @@ if [ "$DB_TYPE" = "local" ]; then
         kubectl rollout restart deployment/specify deployment/specify-worker -n "$NAMESPACE" > /dev/null 2>&1
         kubectl rollout status deployment/specify -n "$NAMESPACE" --timeout=120s 2>/dev/null || true
         echo_info "Done"
+        verify_schema || true
         echo ""
         echo -e "Access: ${GREEN}http://localhost:8000/specify/${NC}"
         exit 0
@@ -550,7 +556,10 @@ run_share_pod() {
                     {\"name\": \"secrets\", \"secret\": {\"secretName\": \"specify-secrets\"}}
                 ]
             }
-        }" > /dev/null 2>&1
+        }" > /dev/null 2>&1 || {
+        echo_error "Could not start task pod $name (check permissions to create pods in $NAMESPACE)"
+        exit 1
+    }
 }
 
 # Waits for a task pod to finish. Returns 0 if it succeeded, 1 if it failed and

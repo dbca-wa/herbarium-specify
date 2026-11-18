@@ -33,6 +33,11 @@ SIGNATURE_INDEX = "localityNameIDX"
 # businessrules.0003_catnum_constraint (replaced by a configurable uniqueness rule).
 DROPPED_UNIQUE_CONSTRAINTS = {("collectionobject", ("collectionid", "catalognumber"))}
 
+# Errors raised when existing data prevents a constraint from being created:
+# duplicate values (1062, 1022) and orphaned references (1452, 1216). These are
+# reported and skipped; any other error stops the repair.
+DATA_CONFLICT_ERRORS = {1022, 1062, 1216, 1452}
+
 # Indexes on varchar(1024+) columns need a prefix to fit InnoDB's 3072-byte key limit.
 PREFIX_INDEX_SQL = {
     ("locality", "localityNameIDX"): "CREATE INDEX `localityNameIDX` ON `locality` (`LocalityName`(768))",
@@ -82,13 +87,21 @@ def has_foreign_key(existing, column):
     return any(c["foreign_key"] and lower(c["columns"]) == [column.lower()] for c in existing.values())
 
 
+def error_code(error):
+    for candidate in (error, error.__cause__):
+        args = getattr(candidate, "args", ())
+        if args and isinstance(args[0], int):
+            return args[0]
+    return None
+
+
 def planned_statements(editor):
     tables = set(connection.introspection.table_names())
     models = [
         m for m in apps.get_app_config("specify").get_models()
         if m._meta.managed and not m._meta.proxy and m._meta.db_table in tables
     ]
-    indexes, uniques, foreign_keys = [], [], []
+    indexes, uniques, foreign_keys, signature = [], [], [], []
     for model in models:
         meta = model._meta
         table = meta.db_table
@@ -101,7 +114,8 @@ def planned_statements(editor):
             columns = [meta.get_field(name.lstrip("-")).column for name in index.fields]
             if not has_index(existing, columns, index.name):
                 sql = PREFIX_INDEX_SQL.get((table, index.name)) or str(index.create_sql(model, editor))
-                indexes.append((f"index {index.name} on {table}", sql))
+                target = signature if (table, index.name) == (SIGNATURE_TABLE, SIGNATURE_INDEX) else indexes
+                target.append((f"index {index.name} on {table}", sql))
         for field_names in meta.unique_together:
             fields = [meta.get_field(name) for name in field_names]
             if (table, tuple(lower(f.column for f in fields))) in DROPPED_UNIQUE_CONSTRAINTS:
@@ -120,7 +134,9 @@ def planned_statements(editor):
         for (table, name), sql in SITE_INDEX_SQL.items():
             if table in tables and name not in constraints(table):
                 site.append((f"site index {name} on {table}", sql))
-    return indexes + uniques + foreign_keys + site
+    # The signature index goes last so that an interrupted repair still reports
+    # the database as affected and is resumed by the next run.
+    return indexes + uniques + foreign_keys + site + signature
 
 
 def main():
@@ -142,7 +158,7 @@ def main():
             if len(plan) > 15:
                 say("  ... and %d more" % (len(plan) - 15))
             return 0
-        applied, failed = 0, []
+        applied, failed, aborted = 0, [], None
         started = time.time()
         for n, (description, sql) in enumerate(plan, 1):
             t = time.time()
@@ -150,12 +166,19 @@ def main():
                 editor.execute(sql)
                 applied += 1
             except DatabaseError as e:
+                if error_code(e) not in DATA_CONFLICT_ERRORS:
+                    aborted = (description, str(e))
+                    break
                 failed.append((description, str(e)))
             if n % 25 == 0 or n == len(plan) or time.time() - t > 10:
                 say("  [%d/%d] %s (%.1fs)" % (n, len(plan), description, time.time() - t))
         say("SCHEMA repair applied=%d failed=%d seconds=%.0f" % (applied, len(failed), time.time() - started))
         for description, error in failed:
-            say("  FAILED " + description + ": " + error[:300])
+            say("  FAILED (existing data) " + description + ": " + error[:300])
+        if aborted:
+            say("  STOPPED at " + aborted[0] + ": " + aborted[1][:300])
+            say("  Nothing was rolled back. Fix the cause and run the repair again; it resumes where it stopped.")
+            return 2
         return 1 if failed else 0
 
 
