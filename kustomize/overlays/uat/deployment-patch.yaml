@@ -25,7 +25,12 @@ spec:
             memory: "512Mi"
             cpu: "250m"
           limits:
-            memory: "3Gi"
+            # Specify 7.12.0.6 loads every related record when checking delete
+            # blockers, so opening the taxon tree definition form needs about
+            # 4 GB per request (50k taxa, 577k determinations) and crashed the
+            # pod at 3Gi. Fixed upstream in 7.12.3 (specify/specify7#8238);
+            # return to 3Gi after upgrading.
+            memory: "12Gi"
             cpu: "1000m"
       volumes:
       - name: sso-settings
